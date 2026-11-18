@@ -101,6 +101,35 @@ struct ReadingSettings: Codable, Equatable, Sendable {
 
     static let `default` = ReadingSettings()
 
+    init() {}
+
+    /// 手写解码：新增字段时，老版本存下的设置仍然能读出来，
+    /// 不会因为缺 key 整体 decoding 失败而把用户调好的字号/主题重置。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ReadingSettings()
+        fontSize = (try? c.decode(CGFloat.self, forKey: .fontSize)) ?? d.fontSize
+        lineHeightMultiple = (try? c.decode(CGFloat.self, forKey: .lineHeightMultiple)) ?? d.lineHeightMultiple
+        fontFamily = (try? c.decode(String.self, forKey: .fontFamily)) ?? d.fontFamily
+        theme = (try? c.decode(ReaderTheme.self, forKey: .theme)) ?? d.theme
+        turnMode = (try? c.decode(PageTurnMode.self, forKey: .turnMode)) ?? d.turnMode
+        comicLayout = (try? c.decode(ComicLayoutMode.self, forKey: .comicLayout)) ?? d.comicLayout
+        paragraphSpacing = (try? c.decode(CGFloat.self, forKey: .paragraphSpacing)) ?? d.paragraphSpacing
+        firstLineIndent = (try? c.decode(Bool.self, forKey: .firstLineIndent)) ?? d.firstLineIndent
+        letterSpacing = (try? c.decode(CGFloat.self, forKey: .letterSpacing)) ?? d.letterSpacing
+        marginH = (try? c.decode(CGFloat.self, forKey: .marginH)) ?? d.marginH
+        marginV = (try? c.decode(CGFloat.self, forKey: .marginV)) ?? d.marginV
+        justify = (try? c.decode(Bool.self, forKey: .justify)) ?? d.justify
+        showProgress = (try? c.decode(Bool.self, forKey: .showProgress)) ?? d.showProgress
+        showClock = (try? c.decode(Bool.self, forKey: .showClock)) ?? d.showClock
+        autoNightMode = (try? c.decode(Bool.self, forKey: .autoNightMode)) ?? d.autoNightMode
+        keepScreenOn = (try? c.decode(Bool.self, forKey: .keepScreenOn)) ?? d.keepScreenOn
+        comicPageGap = (try? c.decode(CGFloat.self, forKey: .comicPageGap)) ?? d.comicPageGap
+        prefetchChapters = (try? c.decode(Int.self, forKey: .prefetchChapters)) ?? d.prefetchChapters
+        showChapterBar = (try? c.decode(Bool.self, forKey: .showChapterBar)) ?? d.showChapterBar
+        preloadCount = (try? c.decode(Int.self, forKey: .preloadCount)) ?? d.preloadCount
+    }
+
     var uiFont: UIFont {
         switch fontFamily {
         case "serif":
