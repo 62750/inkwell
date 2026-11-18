@@ -504,6 +504,36 @@ struct ReaderSettingsPanel: View {
                     Spacer()
                 }
 
+                // 提前缓存
+                HStack {
+                    Text("提前缓存").font(.subheadline).frame(width: 62, alignment: .leading)
+                    ForEach([0, 1, 3, 5], id: \.self) { n in
+                        Button {
+                            update { $0.prefetchChapters = n }
+                        } label: {
+                            Text(n == 0 ? "关" : "\(n)章")
+                                .font(.system(size: 12))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(vm.settings.prefetchChapters == n
+                                            ? Color.accentColor.opacity(0.18)
+                                            : Color.secondary.opacity(0.10),
+                                            in: Capsule())
+                                .foregroundStyle(vm.settings.prefetchChapters == n
+                                                 ? Color.accentColor : .primary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                    Toggle("", isOn: Binding(
+                        get: { vm.settings.showChapterBar },
+                        set: { v in update { $0.showChapterBar = v } }
+                    ))
+                    .labelsHidden()
+                    .scaleEffect(0.8)
+                    Text("进度条").font(.caption2).foregroundStyle(.secondary)
+                }
+
                 // 翻页模式 / 漫画模式
                 Picker("翻页", selection: Binding(
                     get: { vm.settings.turnMode },

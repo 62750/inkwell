@@ -100,6 +100,15 @@ struct TextReaderView: View {
                     footer
                 }
             }
+            .overlay(alignment: .trailing) {
+                if vm.settings.showChapterBar, vm.pageCount > 1 {
+                    ChapterProgressBar(progress: vm.chapterProgress) { ratio in
+                        vm.jumpToPage(ratio: ratio)
+                    }
+                    .padding(.trailing, 2)
+                    .opacity(vm.showMenu ? 0.25 : 0.9)
+                }
+            }
             .overlay(alignment: .top) {
                 if !vm.showMenu {
                     chapterHeader
@@ -256,5 +265,60 @@ struct PageTextView: UIViewRepresentable {
     func updateUIView(_ tv: UITextView, context: Context) {
         tv.attributedText = attributed
         tv.backgroundColor = .clear
+    }
+}
+
+// MARK: - 章内进度条（右侧竖条，可拖动）
+
+struct ChapterProgressBar: View {
+    let progress: Double
+    let onScrub: (Double) -> Void
+
+    @State private var dragging = false
+    @State private var dragValue: Double = 0
+
+    private var display: Double {
+        min(1, max(0, dragging ? dragValue : progress))
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let h = max(1, geo.size.height)
+            ZStack(alignment: .bottom) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.16))
+                    .frame(width: 3)
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.8))
+                    .frame(width: 3, height: h * display)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        dragging = true
+                        let ratio = 1 - (value.location.y / h)
+                        dragValue = min(1, max(0, ratio))
+                        onScrub(dragValue)
+                    }
+                    .onEnded { _ in
+                        dragging = false
+                        onScrub(dragValue)
+                    }
+            )
+            .overlay(alignment: .top) {
+                if dragging {
+                    Text("\(Int((display * 100).rounded()))%")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .fixedSize()
+                        .offset(y: -18)
+                }
+            }
+        }
+        .frame(width: 16)
     }
 }

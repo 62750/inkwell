@@ -60,6 +60,8 @@ struct BookshelfView: View {
     @State private var selectedBook: Book?
     @State private var searchText = ""
     @State private var importing = false
+    @State private var renamingBook: Book?
+    @State private var renameText = ""
     @State private var importError: String?
     @State private var sortMode: SortMode = .recent
 
@@ -138,6 +140,11 @@ struct BookshelfView: View {
                                         Task { await loadToc(book) }
                                     } label: { Label("刷新目录", systemImage: "arrow.clockwise") }
 
+                                    Button {
+                                        renameText = book.name
+                                        renamingBook = book
+                                    } label: { Label("重命名", systemImage: "pencil") }
+
                                     if !book.isLocal {
                                         Button {
                                             app.removeBook(book.id)
@@ -189,6 +196,18 @@ struct BookshelfView: View {
                     ProgressView("正在解析…")
                         .padding(24)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+            .alert("重命名书籍", isPresented: Binding(
+                get: { renamingBook != nil },
+                set: { if !$0 { renamingBook = nil } }
+            )) {
+                TextField("书名", text: $renameText)
+                Button("取消", role: .cancel) { renamingBook = nil }
+                Button("保存") { commitRename() }
+            } message: {
+                if let b = renamingBook {
+                    Text("原名：\(b.name)")
                 }
             }
             .alert("导入失败", isPresented: Binding(
@@ -258,6 +277,20 @@ struct BookshelfView: View {
         guard let p = LibraryRepository.shared.progress(bookId: book.id),
               p.percent > 0.005 else { return nil }
         return String(format: "%.0f%%", p.percent * 100)
+    }
+
+    private func commitRename() {
+        guard var b = renamingBook else { return }
+        let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != b.name else {
+            renamingBook = nil
+            return
+        }
+        b.name = newName
+        LibraryRepository.shared.saveBook(b)   // id 不变，书架/进度都不受影响
+        app.loadBooks()
+        app.showToast("已重命名为「\(newName)」")
+        renamingBook = nil
     }
 
     private func open(_ book: Book) {

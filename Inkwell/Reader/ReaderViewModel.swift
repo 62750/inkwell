@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import SwiftUI
 import Combine
 
@@ -44,44 +44,58 @@ final class ReaderViewModel: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
-        loadChapters()
+
+        let cached = libraryRepo.chapters(bookId: book.id)
+        chapters = cached
         restoreProgress()
-        Task { await loadChapter(at: chapterIndex) }
+
+        if cached.isEmpty && !book.isLocal {
+            // 在线书第一次打开：先拉目录，拿到后再开章
+            loadTocThenChapter()
+        } else {
+            Task { await loadChapter(at: chapterIndex) }
+        }
     }
 
-    // MARK: 章节
-
-    private func loadChapters() {
-        let list = libraryRepo.chapters(bookId: book.id)
-        chapters = list
-        if list.isEmpty, !book.isLocal,
-           let source = SourceRepository.shared.source(id: book.sourceId) {
-            loading = true
-            Task {
-                do {
-                    let toc = try await SourceEngine.shared.toc(source: source, book: book)
-                    self.libraryRepo.saveChapters(toc.chapters, bookId: book.id)
+    /// 在线书首次进入：拉目录 → 落缓存 → 自动打开上次/第一章
+    private func loadTocThenChapter() {
+        guard let source = SourceRepository.shared.source(id: book.sourceId) else {
+            Task { await loadChapter(at: 0) }
+            return
+        }
+        loading = true
+        Task {
+            do {
+                let toc = try await SourceEngine.shared.toc(source: source, book: book)
+                guard !toc.chapters.isEmpty else {
                     await MainActor.run {
-                        self.chapters = toc.chapters
                         self.loading = false
-                        self.anchorChar = 0
+                        self.errorMessage = "目录为空：书源的目录规则可能需要调整"
                     }
-                } catch {
-                    await MainActor.run {
-                        self.errorMessage = error.localizedDescription
-                        self.loading = false
-                    }
+                    return
+                }
+                self.libraryRepo.saveChapters(toc.chapters, bookId: book.id)
+                await MainActor.run {
+                    self.chapters = toc.chapters
+                    self.chapterIndex = min(self.chapterIndex, toc.chapters.count - 1)
+                    self.loading = false
+                }
+                await self.loadChapter(at: self.chapterIndex)
+            } catch {
+                await MainActor.run {
+                    self.loading = false
+                    self.errorMessage = "目录加载失败：\(error.localizedDescription)"
                 }
             }
         }
     }
 
     private func restoreProgress() {
-        chapters = libraryRepo.chapters(bookId: book.id)
         guard let p = libraryRepo.progress(bookId: book.id) else { return }
-        chapterIndex = min(max(0, p.chapterIndex), max(0, chapters.count - 1))
         anchorChar = p.charOffset
         pageIndex = p.pageInChapter
+        guard !chapters.isEmpty else { return }
+        chapterIndex = min(max(0, p.chapterIndex), chapters.count - 1)
     }
 
     // MARK: 加载一章
@@ -259,24 +273,54 @@ final class ReaderViewModel: ObservableObject {
 
     // MARK: 预取
 
+    /// 预取后续 N 章（N 由「设置 → 提前缓存」决定，0 表示不预取）
     private func prefetchNeighbors() {
         prefetchTask?.cancel()
-        guard !book.isLocal,
+        let depth = max(0, min(10, settings.prefetchChapters))
+        guard depth > 0, !book.isLocal, !isComic,
               let source = SourceRepository.shared.source(id: book.sourceId) else { return }
-        let nextIndex = chapterIndex + 1
-        guard nextIndex < chapters.count,
-              contentCache[nextIndex] == nil,
-              libraryRepo.content(chapterId: chapters[nextIndex].id) == nil else { return }
 
-        let chapter = chapters[nextIndex]
+        var targets: [Chapter] = []
+        var idx = chapterIndex + 1
+        while idx < chapters.count, targets.count < depth {
+            let ch = chapters[idx]
+            let hasCache = contentCache[idx] != nil
+                || libraryRepo.content(chapterId: ch.id) != nil
+            if !hasCache { targets.append(ch) }
+            idx += 1
+        }
+        guard !targets.isEmpty else { return }
+
         let b = book
+        logD("prefetch", "预取 \(targets.count) 章：\(targets.map { $0.title }.joined(separator: " / "))")
         prefetchTask = Task.detached(priority: .background) {
-            guard !Task.isCancelled else { return }
-            if let result = try? await SourceEngine.shared.content(source: source, book: b,
-                                                                   chapter: chapter) {
-                LibraryRepository.shared.saveContent(result, chapterId: chapter.id)
+            for ch in targets {
+                if Task.isCancelled { return }
+                if let result = try? await SourceEngine.shared.content(source: source,
+                                                                       book: b, chapter: ch) {
+                    LibraryRepository.shared.saveContent(result, chapterId: ch.id)
+                }
             }
         }
+    }
+
+    /// 章内按比例跳页（右侧竖条拖动用）
+    func jumpToPage(ratio: Double) {
+        guard let p = paginated, p.pageCount > 0 else { return }
+        let clamped = min(1, max(0, ratio))
+        let target = min(p.pageCount - 1, max(0, Int((Double(p.pageCount - 1) * clamped).rounded())))
+        if target != pageIndex {
+            pageIndex = target
+            recordAnchor()
+            saveProgress()
+        }
+    }
+
+    /// 当前页在本章的进度 0...1
+    var chapterProgress: Double {
+        guard let p = paginated, p.pageCount > 0 else { return 0 }
+        if p.pageCount == 1 { return 1 }
+        return Double(pageIndex) / Double(p.pageCount - 1)
     }
 
     // MARK: 漫画
@@ -328,6 +372,7 @@ final class ReaderViewModel: ObservableObject {
 
     func apply(settings newSettings: ReadingSettings) {
         let size = lastLayoutSize
+        let oldPrefetch = settings.prefetchChapters
         let shouldRepaginate = newSettings.fontSize != settings.fontSize
             || newSettings.lineHeightMultiple != settings.lineHeightMultiple
             || newSettings.fontFamily != settings.fontFamily
@@ -340,5 +385,6 @@ final class ReaderViewModel: ObservableObject {
         if shouldRepaginate, size.width > 0 {
             repaginate(size: size, force: true)
         }
+        if newSettings.prefetchChapters != oldPrefetch { prefetchNeighbors() }
     }
 }

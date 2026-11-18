@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import UIKit
 
 // MARK: - 阅读设置
@@ -92,6 +92,10 @@ struct ReadingSettings: Codable, Equatable, Sendable {
     var autoNightMode: Bool = false
     var keepScreenOn: Bool = true
     var comicPageGap: CGFloat = 0
+    /// 提前缓存后续章节数：0 / 1 / 3 / 5
+    var prefetchChapters: Int = 1
+    /// 右侧章内进度条
+    var showChapterBar: Bool = true
     var comicFitWidth: Bool = true
     var preloadCount: Int = 6
 
