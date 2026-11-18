@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import SwiftSoup
 
 // MARK: - XPath 求值引擎
@@ -633,8 +633,8 @@ struct XPathEvaluator {
                     for attr in e.getAttributes()?.asList() ?? [Attribute]() {
                         candidates.append(.attribute(name: attr.getKey(), value: attr.getValue(), owner: e))
                     }
-                } else if e.hasAttr(name) {
-                    candidates.append(.attribute(name: name, value: e.attr(name), owner: e))
+                } else if hasAttrOf(e, name) {
+                    candidates.append(.attribute(name: name, value: attrOf(e, name), owner: e))
                 }
             }
         default:
@@ -704,9 +704,9 @@ struct XPathEvaluator {
         case .child:
             elements = e.children().toArray()
         case .descendant:
-            elements = e.getAllElements().toArray().filter { $0 !== e }
+            elements = allElementsOf(e).filter { $0 !== e }
         case .descendantOrSelf:
-            elements = e.getAllElements().toArray()
+            elements = allElementsOf(e)
         case .selfAxis:
             elements = [e]
         case .parent:
@@ -715,11 +715,11 @@ struct XPathEvaluator {
             var cur = e.parent()
             while let c = cur { elements.append(c); cur = c.parent() }
         case .followingSibling:
-            var n = e.nextElementSibling()
-            while let x = n { elements.append(x); n = x.nextElementSibling() }
+            var n = nextSiblingOf(e)
+            while let x = n { elements.append(x); n = nextSiblingOf(x) }
         case .precedingSibling:
-            var n = e.previousElementSibling()
-            while let x = n { elements.append(x); n = x.previousElementSibling() }
+            var n = prevSiblingOf(e)
+            while let x = n { elements.append(x); n = prevSiblingOf(x) }
         case .attribute:
             break
         }
@@ -728,7 +728,7 @@ struct XPathEvaluator {
         case .name(let n):
             let lower = n.lowercased()
             return elements
-                .filter { $0.tagName().lowercased() == lower }
+                .filter { tagOf($0).lowercased() == lower }
                 .map { XNode.element($0) }
 
         case .anyElement:
@@ -737,7 +737,7 @@ struct XPathEvaluator {
         case .textNode:
             var texts: [XNode] = []
             // text() 取的是「当前节点的直接文本子节点」，但 //text() 惯例上取所有后代文本
-            let sources: [Element] = (axis == .descendant) ? e.getAllElements().toArray() : [e]
+            let sources: [Element] = (axis == .descendant) ? allElementsOf(e) : [e]
             for el in sources {
                 for child in el.getChildNodes() {
                     if let tn = child as? TextNode {
@@ -761,7 +761,7 @@ struct XPathEvaluator {
                 out.append(.element(el))
             }
             if axis == .descendant {
-                for el in e.getAllElements().toArray() {
+                for el in allElementsOf(e) {
                     for child in el.getChildNodes() where child is TextNode {
                         if let tn = child as? TextNode {
                             let s = tn.getWholeText()
@@ -776,9 +776,8 @@ struct XPathEvaluator {
 
         case .attribute(let name):
             return elements.compactMap { el -> XNode? in
-                guard let has = try? el.hasAttr(name), has else { return nil }
-                let value = (try? el.attr(name)) ?? ""
-                return .attribute(name: name, value: value, owner: el)
+                guard hasAttrValue(el, name) else { return nil }
+                return .attribute(name: name, value: attrValue(el, name), owner: el)
             }
         }
     }
@@ -788,13 +787,12 @@ struct XPathEvaluator {
     /// 兼容不同 SwiftSoup 版本：attr/hasAttr 在部分版本上是 throws
     @inline(__always)
     private static func attrValue(_ e: Element, _ key: String) -> String {
-        (try? e.attr(key)) ?? ""
+        attrOf(e, key)
     }
 
     @inline(__always)
     private static func hasAttrValue(_ e: Element, _ key: String) -> Bool {
-        guard let v = try? e.hasAttr(key) else { return false }
-        return v
+        hasAttrOf(e, key)
     }
 
     private static func nodeMatches(_ node: XNode, predicate: XPredicate) -> Bool {

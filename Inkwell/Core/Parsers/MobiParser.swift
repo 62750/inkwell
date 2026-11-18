@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import SwiftSoup
 
 // MARK: - MOBI / AZW / AZW3（PalmDB + PalmDOC）
@@ -119,7 +119,7 @@ enum MobiParser {
         func walk(_ el: Element) {
             for child in el.getChildNodes() {
                 if let e = child as? Element {
-                    let tag = e.tagName().lowercased()
+                    let tag = tagOf(e).lowercased()
                     if ["script", "style", "svg"].contains(tag) { continue }
                     if ["p", "div", "h1", "h2", "h3", "h4", "li", "blockquote"].contains(tag) {
                         let t = ((try? e.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

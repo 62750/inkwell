@@ -197,14 +197,14 @@ final class EPUBParser {
         var target: Element? = navs.size() > 0 ? navs.get(0) : nil
         for i in 0..<navs.size() {
             let n = navs.get(i)
-            let type = (try? n.attr("epub:type")) ?? ""
+            let type = attrOf(n, "epub:type")
             if type.contains("toc") { target = n; break }
         }
         guard let nav = target else { return }
         guard let links = try? nav.select("a[href]") else { return }
         for i in 0..<links.size() {
             let a = links.get(i)
-            let href = (try? a.attr("href")) ?? ""
+            let href = attrOf(a, "href")
             let title = ((try? a.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let key = normalizePath(joinPath(basePath, href.components(separatedBy: "#").first ?? href))
             if !key.isEmpty, !title.isEmpty { tocMap[key] = title }
@@ -255,7 +255,7 @@ final class EPUBParser {
         func walk(_ node: Element) {
             for child in node.getChildNodes() {
                 if let e = child as? Element {
-                    let tag = e.tagName().lowercased()
+                    let tag = tagOf(e).lowercased()
                     if ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "br"].contains(tag) {
                         let t = ((try? e.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         if !t.isEmpty { lines.append(t) }

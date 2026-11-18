@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 
 // MARK: - 书源编辑器
 //
@@ -193,7 +193,7 @@ struct SourceEditorView: View {
 
     private var bookInfoFields: [FieldSpec] {
         [
-            .init(title: "预处理 init", path: \.ruleBookInfo.init),
+            .init(title: "预处理 init", path: \.ruleBookInfo.initRule),
             .init(title: "书名 name", path: \.ruleBookInfo.name),
             .init(title: "作者 author", path: \.ruleBookInfo.author),
             .init(title: "简介 intro", path: \.ruleBookInfo.intro),

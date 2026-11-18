@@ -1,4 +1,4 @@
-import SwiftUI
+﻿import SwiftUI
 
 // MARK: - 阅读器顶部/底部菜单
 
@@ -50,7 +50,7 @@ struct ReaderMenuOverlay: View {
                     .font(.system(size: 14))
             }
         }
-        .foregroundStyle(vm.settings.theme.textColor)
+        .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial)
@@ -102,7 +102,7 @@ struct ReaderMenuOverlay: View {
             .padding(.bottom, 6)
         }
         .padding(.top, 12)
-        .foregroundStyle(vm.settings.theme.textColor)
+        .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
         .background(.ultraThinMaterial)
     }
 
@@ -333,13 +333,13 @@ struct ReaderSettingsPanel: View {
                             update { $0.theme = t }
                         } label: {
                             Circle()
-                                .fill(t.background)
+                                .fill(Color(uiColor: t.background))
                                 .frame(width: 32, height: 32)
                                 .overlay(Circle().strokeBorder(
                                     vm.settings.theme == t ? Color.accentColor : Color.secondary.opacity(0.3),
                                     lineWidth: vm.settings.theme == t ? 2 : 0.5))
                                 .overlay(Text(t.label).font(.system(size: 8))
-                                    .foregroundStyle(t.textColor))
+                                    .foregroundStyle(Color(uiColor: t.textColor)))
                         }
                         .buttonStyle(.plain)
                     }

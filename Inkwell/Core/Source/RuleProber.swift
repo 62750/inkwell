@@ -40,7 +40,7 @@ enum RuleProber {
             // 按 (tag + class 集合) 分组
             var groups: [String: [Element]] = [:]
             for k in kids {
-                let key = k.tagName().lowercased() + "|" + k.classNames().sorted().joined(separator: ".")
+                let key = tagOf(k).lowercased() + "|" + classesOf(k).sorted().joined(separator: ".")
                 groups[key, default: []].append(k)
             }
 
@@ -68,7 +68,7 @@ enum RuleProber {
         let n = Double(children.count)
 
         // 1) 链接浓度：列表项通常都带详情链接
-        let withLink = children.filter { $0.hasAttr("href") || !SelectorBridge.query("a[href]", in: $0).isEmpty }
+        let withLink = children.filter { hasAttrOf($0, "href") || !SelectorBridge.query("a[href]", in: $0).isEmpty }
         let linkRatio = Double(withLink.count) / n
         score += linkRatio * 3.0
 
@@ -84,7 +84,7 @@ enum RuleProber {
         else if children.count > 200 { score -= 0.6 }
 
         // 4) 容器语义提示
-        let own = (parent.classNames().joined(separator: " ") + " " + parent.id()).lowercased()
+        let own = (classesOf(parent).joined(separator: " ") + " " + idOf(parent)).lowercased()
         for w in hintWords where own.contains(w) { score += 1.2; break }
 
         // 5) 每项内部要有标题级结构
@@ -92,7 +92,7 @@ enum RuleProber {
         score += Double(withHeading.count) / n * 1.0
 
         // 6) 纯导航/页脚的容器降权
-        let parentTag = parent.tagName().lowercased()
+        let parentTag = tagOf(parent).lowercased()
         if ["nav", "footer", "header", "aside"].contains(parentTag) { score -= 3 }
         if own.contains("nav") || own.contains("footer") || own.contains("menu") { score -= 2 }
 
@@ -106,7 +106,7 @@ enum RuleProber {
                                       children: [Element], root: Element) -> String {
         let base = selectorPath(for: parent, in: root)
         // 组内子元素是否被 class 进一步约束（更精确，优先）
-        let classes = children.first?.classNames().sorted() ?? []
+        let classes = classesOf(children.first).sorted()
         if let uniqueClass = classes.first(where: { isValidIdent($0) }),
            isDiscriminating(selector: ".\(uniqueClass)", count: children.count, root: root) {
             let prefixed = base.isEmpty ? ".\(uniqueClass)" : "\(base) .\(uniqueClass)"
@@ -124,10 +124,10 @@ enum RuleProber {
 
     /// 元素在文档中的唯一/近似唯一路径
     static func selectorPath(for e: Element, in root: Element) -> String {
-        let id = e.id()
+        let id = idOf(e)
         if !id.isEmpty, isValidIdent(id) { return "#\(id)" }
 
-        let classes = e.classNames().sorted().filter { isValidIdent($0) }
+        let classes = classesOf(e).sorted().filter { isValidIdent($0) }
         for c in classes {
             if let els = try? root.select(".\(c)"), els.size() <= 6 {
                 return ".\(c)"
@@ -139,7 +139,7 @@ enum RuleProber {
             if let els = try? root.select(combo), els.size() <= 6 { return combo }
         }
         // 退化到 tag + 父级
-        let tag = e.tagName().lowercased()
+        let tag = tagOf(e).lowercased()
         if let p = e.parent(), p !== root {
             let parentPath = selectorPath(for: p, in: root)
             if !parentPath.isEmpty { return "\(parentPath) \(tag)" }
@@ -188,7 +188,7 @@ enum RuleProber {
                                   minCount: 5)
         for c in candidates.prefix(10) {
             // 目录项必须是 <a>
-            let anchors = c.children.filter { $0.tagName().lowercased() == "a" && $0.hasAttr("href") }
+            let anchors = c.children.filter { tagOf($0).lowercased() == "a" && hasAttrOf($0, "href") }
             let isAnchorList = anchors.count >= max(5, c.children.count / 2)
 
             if isAnchorList {
@@ -197,7 +197,7 @@ enum RuleProber {
             guard let first = c.children.first else { continue }
             let a = SelectorBridge.query("a[href]", in: first).first
             if let a {
-                let aTag = a.tagName().lowercased()
+                let aTag = tagOf(a).lowercased()
                 let rule = c.childSelector + " > " + aTag
                 return (rule, "text", "href")
             }
@@ -210,7 +210,7 @@ enum RuleProber {
     static func probeContent(_ root: Element) -> String? {
         var best: (Element, Double)?
         for e in flatten(root) {
-            let tag = e.tagName().lowercased()
+            let tag = tagOf(e).lowercased()
             if ["script", "style", "nav", "header", "footer", "aside", "form", "select"].contains(tag) {
                 continue
             }
@@ -224,7 +224,7 @@ enum RuleProber {
             var score = Double(len) * (1.0 - linkDensity)
             score += Double(paragraphs) * 40
             // 正文容器常带语义词
-            let own = (e.classNames().joined(separator: " ") + " " + e.id()).lowercased()
+            let own = (classesOf(e).joined(separator: " ") + " " + idOf(e)).lowercased()
             if own.contains("content") || own.contains("article") || own.contains("chapter")
                 || own.contains("read") || own.contains("text") || own.contains("body") {
                 score *= 1.5
@@ -252,9 +252,9 @@ enum RuleProber {
             guard imgs.count >= 1 else { continue }
             // 过滤头像/logo：只算 src 里像漫画图的
             let real = imgs.filter { img in
-                let src = img.attr("src").isEmpty
-                    ? (img.attr("data-src").isEmpty ? img.attr("data-original") : img.attr("data-src"))
-                    : img.attr("src")
+                let src = attrOf(img, "src").isEmpty
+                    ? (attrOf(img, "data-src").isEmpty ? attrOf(img, "data-original") : attrOf(img, "data-src"))
+                    : attrOf(img, "src")
                 guard !src.isEmpty else { return false }
                 let lower = src.lowercased()
                 if lower.contains("logo") || lower.contains("avatar") || lower.contains("icon") { return false }
@@ -285,7 +285,7 @@ enum RuleProber {
         }
         // 2) 带 title 属性的链接
         for a in SelectorBridge.query("a", in: item) {
-            if a.hasAttr("title"), a.attr("title").count >= 1 { return "tag.a@title" }
+            if hasAttrOf(a, "title"), attrOf(a, "title").count >= 1 { return "tag.a@title" }
         }
         // 3) 最长文本的链接
         let anchors = SelectorBridge.query("a", in: item)
@@ -298,19 +298,19 @@ enum RuleProber {
     }
 
     static func linkSelector(in item: Element) -> String {
-        for a in SelectorBridge.query("a", in: item) where a.hasAttr("href") {
-            let href = a.attr("href")
+        for a in SelectorBridge.query("a", in: item) where hasAttrOf(a, "href") {
+            let href = attrOf(a, "href")
             if href.isEmpty || href.hasPrefix("#") || href.hasPrefix("javascript") { continue }
             return "tag.a@href"
         }
-        if item.hasAttr("href") { return "@href" }
+        if hasAttrOf(item, "href") { return "@href" }
         return ""
     }
 
     static func imageSelector(in item: Element) -> String {
         for img in SelectorBridge.query("img", in: item) {
-            for attr in ["data-src", "data-original", "data-echo", "src"] where img.hasAttr(attr) {
-                let v = img.attr(attr)
+            for attr in ["data-src", "data-original", "data-echo", "src"] where hasAttrOf(img, attr) {
+                let v = attrOf(img, attr)
                 if v.isEmpty || v.hasPrefix("data:") { continue }
                 return "tag.img@\(attr)"
             }
@@ -333,14 +333,14 @@ enum RuleProber {
     /// 按 class 语义找子元素
     static func classHintSelector(in item: Element, hints: [String]) -> String {
         for e in flatten(item) {
-            let own = e.classNames().joined(separator: " ").lowercased()
+            let own = classesOf(e).joined(separator: " ").lowercased()
             for h in hints where own.contains(h) {
                 let t = textLength(e)
                 guard t > 2, t < 800 else { continue }
-                if let cls = e.classNames().sorted().first(where: isValidIdent) {
+                if let cls = classesOf(e).sorted().first(where: isValidIdent) {
                     return ".\(cls)@text"
                 }
-                return "tag.\(e.tagName().lowercased())@text"
+                return "tag.\(tagOf(e).lowercased())@text"
             }
         }
         return ""
@@ -399,7 +399,7 @@ enum RuleProber {
             cover = "tag.meta@content"
         }
         if cover.isEmpty, let img = SelectorBridge.query("img", in: root)
-            .first(where: { $0.attr("src").contains("cover") || $0.classNames().contains("cover") }) {
+            .first(where: { attrOf($0, "src").contains("cover") || classesOf($0).contains("cover") }) {
             _ = img
             cover = "class.cover@tag.img@src"
         }
@@ -409,7 +409,7 @@ enum RuleProber {
         for a in SelectorBridge.query("a[href]", in: root) {
             let t = ((try? a.text()) ?? "")
             if t.contains("章节目录") || t.contains("全部章节") || t.contains("目录") {
-                if let cls = a.classNames().sorted().first(where: isValidIdent) {
+                if let cls = classesOf(a).sorted().first(where: isValidIdent) {
                     tocUrl = ".\(cls)@href"
                 } else {
                     tocUrl = "tag.a@href"

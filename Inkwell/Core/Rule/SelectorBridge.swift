@@ -173,15 +173,15 @@ enum SelectorBridge {
             return elements.map { (try? $0.outerHtml()) ?? "" }
         case "content":
             return elements.map { el in
-                if el.hasAttr("content") { return el.attr("content") }
+                if hasAttrOf(el, "content") { return attrOf(el, "content") }
                 return (try? el.html()) ?? ""
             }
         default:
             // 属性名
             return elements.compactMap { el in
-                if el.hasAttr(extractKind) { return el.attr(extractKind) }
+                if hasAttrOf(el, extractKind) { return attrOf(el, extractKind) }
                 let lowerAttr = extractKind.lowercased()
-                if el.hasAttr(lowerAttr) { return el.attr(lowerAttr) }
+                if hasAttrOf(el, lowerAttr) { return attrOf(el, lowerAttr) }
                 return nil
             }
         }
@@ -191,7 +191,7 @@ enum SelectorBridge {
     static func query(_ css: String, in root: Element) -> [Element] {
         let q = css.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return [] }
-        if q == "*" { return root.getAllElements().toArray() }
+        if q == "*" { return allElementsOf(root) }
         if q.hasPrefix(">") {
             let sub = String(q.dropFirst()).trimmingCharacters(in: .whitespaces)
             return root.children().toArray().flatMap { query(sub, in: $0) }

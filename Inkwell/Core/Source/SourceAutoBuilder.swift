@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import SwiftSoup
 
 // MARK: - 输入一个域名，生成一个能用的书源
@@ -93,7 +93,8 @@ enum SourceAutoBuilder {
                 source.ruleSearch.bookUrl = probe.bookUrl
                 source.ruleSearch.intro = probe.intro
                 confidence = min(1.0, probe.score / 9.0)
-                log.append("列表探测：\(probe.bookList)（\(doc.select(probe.bookList).size()) 项）")
+                let hit = (try? doc.select(probe.bookList).size()) ?? 0
+                log.append("列表探测：\(probe.bookList)（\(hit) 项）")
             } else {
                 log.append("搜索页结构探测失败，回退自适应规则")
             }
@@ -171,19 +172,19 @@ enum SourceAutoBuilder {
         for form in SelectorBridge.query("form", in: doc) {
             let inputs = SelectorBridge.query("input", in: form)
             for input in inputs {
-                let name = input.attr("name")
+                let name = attrOf(input, "name")
                 guard searchInputNames.contains(name.lowercased()) else { continue }
-                var action = form.attr("action")
+                var action = attrOf(form, "action")
                 if action.isEmpty { action = base }
                 action = StringExt.absolute(action, base: base)
-                let method = form.attr("method").uppercased()
+                let method = attrOf(form, "method").uppercased()
                 if method == "POST" {
                     // POST 表单转成 Legado 的 ,{...} 形态
                     var params: [String] = []
                     for i in inputs {
-                        let n = i.attr("name")
+                        let n = attrOf(i, "name")
                         guard !n.isEmpty else { continue }
-                        let v = i.attr("value")
+                        let v = attrOf(i, "value")
                         params.append("\(n)=\(n == name ? "{{key}}" : v)")
                     }
                     let body = params.joined(separator: "&")
@@ -196,7 +197,7 @@ enum SourceAutoBuilder {
         }
         // 2) 页面里的搜索链接（?q= 之类）
         for a in SelectorBridge.query("a[href]", in: doc) {
-            let href = a.attr("href")
+            let href = attrOf(a, "href")
             guard href.contains("search") || href.contains("-search") else { continue }
             if href.contains("q=") || href.contains("key") || href.contains("wd=") {
                 return StringExt.absolute(href, base: base)

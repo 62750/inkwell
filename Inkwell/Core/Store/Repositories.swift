@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import GRDB
 
 // MARK: - 书源仓库
@@ -124,7 +124,7 @@ final class LibraryRepository: @unchecked Sendable {
     func book(id: String) -> Book? {
         guard let rec = try? db.dbQueue.read({ dbase in
             try BookRecord.fetchOne(dbase, key: id)
-        }), let rec else { return nil }
+        }) else { return nil }
         return decodeBook(rec)
     }
 
@@ -147,9 +147,9 @@ final class LibraryRepository: @unchecked Sendable {
     func deleteBook(id: String) {
         try? db.dbQueue.write { dbase in
             _ = try BookRecord.deleteOne(dbase, key: id)
-            _ = try ChapterRecord.deleteAll(dbase, Column("bookId") == id)
+            _ = try ChapterRecord.filter(Column("bookId") == id).deleteAll(dbase)
             _ = try ProgressRecord.deleteOne(dbase, key: id)
-            _ = try BookmarkRecord.deleteAll(dbase, Column("bookId") == id)
+            _ = try BookmarkRecord.filter(Column("bookId") == id).deleteAll(dbase)
         }
     }
 
@@ -178,7 +178,7 @@ final class LibraryRepository: @unchecked Sendable {
                           isVip: $0.isVip)
         }
         try? db.dbQueue.write { dbase in
-            _ = try ChapterRecord.deleteAll(dbase, Column("bookId") == bookId)
+            _ = try ChapterRecord.filter(Column("bookId") == bookId).deleteAll(dbase)
             for r in recs { try r.insert(dbase) }
         }
     }
@@ -188,7 +188,7 @@ final class LibraryRepository: @unchecked Sendable {
     func content(chapterId: String) -> ContentResult? {
         guard let rec = try? db.dbQueue.read({ dbase in
             try ContentRecord.fetchOne(dbase, key: chapterId)
-        }), let rec else { return nil }
+        }) else { return nil }
         let imgs = rec.imageURLs.components(separatedBy: "\n").filter { !$0.isEmpty }
         return ContentResult(text: rec.text, html: "", imageUrls: imgs,
                              nextPageUrl: nil, isComic: !imgs.isEmpty)
@@ -214,7 +214,7 @@ final class LibraryRepository: @unchecked Sendable {
     func progress(bookId: String) -> ReadingProgress? {
         guard let rec = try? db.dbQueue.read({ dbase in
             try ProgressRecord.fetchOne(dbase, key: bookId)
-        }), let rec else { return nil }
+        }) else { return nil }
         return ReadingProgress(bookId: rec.bookId, chapterIndex: rec.chapterIndex,
                                chapterTitle: rec.chapterTitle,
                                pageInChapter: rec.pageInChapter,

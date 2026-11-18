@@ -326,7 +326,7 @@ final class JSEngine: @unchecked Sendable {
     JXS.prototype.html = function(){ return this.arr.map(function(e){ return e.html(); }).join('\\n'); };
     JXS.prototype.outerHtml = function(){ return this.arr.map(function(e){ return e.outerHtml(); }).join('\\n'); };
     JXS.prototype.attr = function(k){ return this.arr.length ? this.arr[0].attr(k) : ''; };
-    JXS.prototype.eachAttr = function(k){ return this.arr.map(function(e){ return e.attr(k); }); };
+    JXS.prototype.eachAttr = function(k){ return this.arr.map(function(e){ return attrOf(e, k); }); };
     JXS.prototype.select = function(q) {
       var out = [];
       this.arr.forEach(function(e){ out = out.concat(e.select(q).all()); });
@@ -443,7 +443,7 @@ enum DOMSerializer {
                 attrs[a.getKey()] = a.getValue()
             }
             return [
-                "tag": e.tagName().lowercased(),
+                "tag": tagOf(e).lowercased(),
                 "attrs": attrs,
                 "children": children,
                 "html": (try? e.html()) ?? "",

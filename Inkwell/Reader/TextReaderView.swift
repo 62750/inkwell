@@ -180,7 +180,7 @@ struct TextReaderView: View {
                 Text(vm.pendingText)
                     .font(Font(vm.settings.uiFont))
                     .lineSpacing(vm.settings.fontSize * (vm.settings.lineHeightMultiple - 1))
-                    .foregroundStyle(vm.settings.theme.textColor)
+                    .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
                     .onTapGesture { vm.showMenu.toggle() }
@@ -194,7 +194,7 @@ struct TextReaderView: View {
         HStack {
             Text(vm.currentChapter?.title ?? "")
                 .font(.system(size: 10))
-                .foregroundStyle(vm.settings.theme.secondaryColor)
+                .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
                 .lineLimit(1)
             Spacer()
         }
@@ -206,15 +206,15 @@ struct TextReaderView: View {
         HStack {
             Text(formattedTime())
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(vm.settings.theme.secondaryColor)
+                .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
             Spacer()
             Text("\(vm.pageIndex + 1) / \(max(1, vm.pageCount))")
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(vm.settings.theme.secondaryColor)
+                .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
             Spacer()
             Text("\(Int(overallPercent() * 100))%")
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(vm.settings.theme.secondaryColor)
+                .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
         }
         .padding(.horizontal, vm.settings.marginH)
         .padding(.bottom, 2)

@@ -326,11 +326,11 @@ actor SourceEngine {
             chapter.isVolume = eval.first(rule.isVolume, input: itemInput, env: env).lowercased() == "true"
         }
         // 有些源的 chapterUrl 是相对 js 属性
-        if chapter.url.isEmpty, el.hasAttr("data-href") {
-            chapter.url = StringExt.absolute(el.attr("data-href"), base: baseUrl)
+        if chapter.url.isEmpty, hasAttrOf(el, "data-href") {
+            chapter.url = StringExt.absolute(attrOf(el, "data-href"), base: baseUrl)
         }
-        if chapter.url.isEmpty, el.hasAttr("data-url") {
-            chapter.url = StringExt.absolute(el.attr("data-url"), base: baseUrl)
+        if chapter.url.isEmpty, hasAttrOf(el, "data-url") {
+            chapter.url = StringExt.absolute(attrOf(el, "data-url"), base: baseUrl)
         }
         if chapter.title.isEmpty { chapter.title = "第\(index + 1)章" }
         return chapter
@@ -614,7 +614,7 @@ enum HeuristicToc {
         for (i, a) in best.enumerated() {
             let title = ((try? a.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty, title.count < 80 else { continue }
-            let href = StringExt.absolute(a.attr("href"), base: baseUrl)
+            let href = StringExt.absolute(attrOf(a, "href"), base: baseUrl)
             guard !href.isEmpty else { continue }
             chapters.append(Chapter(bookId: bookId, index: i, title: title,
                                     url: href, baseUrl: baseUrl))
@@ -626,8 +626,8 @@ enum HeuristicToc {
         var out: [String] = []
         for img in SelectorBridge.query("img", in: dom) {
             for attr in ["data-original", "data-src", "data-echo", "data-lazy-src", "src"] {
-                if img.hasAttr(attr) {
-                    var u = img.attr(attr)
+                if hasAttrOf(img, attr) {
+                    var u = attrOf(img, attr)
                     if u.hasPrefix("data:") { continue }
                     if u.hasPrefix("//") || u.hasPrefix("http") || u.hasPrefix("/") {
                         u = StringExt.absolute(u, base: base)

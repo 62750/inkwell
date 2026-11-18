@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import SwiftSoup
 
 // MARK: - FB2 / HTML / Markdown 解析
@@ -132,7 +132,7 @@ enum HTMLTextParser {
         var lines: [String] = []
         for child in el.getChildNodes() {
             guard let e = child as? Element else { continue }
-            let tag = e.tagName().lowercased()
+            let tag = tagOf(e).lowercased()
             if ["script", "style", "nav", "footer", "header", "aside"].contains(tag) { continue }
             if ["p", "div", "h1", "h2", "h3", "h4", "h5", "li", "blockquote"].contains(tag) {
                 if let t = try? e.text() {
