@@ -1,4 +1,4 @@
-name: Build IPA
+﻿name: Build IPA
 
 on:
   push:
@@ -63,7 +63,7 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             ARCHS=arm64 \
             SWIFT_OPTIMIZATION_LEVEL="-Osize" \
-            | tee "$RUNNER_TEMP/archive.log" | tail -40
+            -quiet 2>&1 | tee "$RUNNER_TEMP/archive.log"
 
       - name: Package IPA
         run: |
@@ -112,5 +112,11 @@ jobs:
       - name: Show failure log
         if: failure()
         run: |
-          echo "===== archive.log tail ====="
-          tail -120 "$RUNNER_TEMP/archive.log" || true
+          echo "===== COMPILE ERRORS ====="
+          grep -h ": error:" "$RUNNER_TEMP/archive.log" | sed 's|/Users/runner/work/inkwell/inkwell/||' | sort -u | head -150 || true
+          echo ""
+          echo "===== ERROR COUNT ====="
+          grep -c ": error:" "$RUNNER_TEMP/archive.log" || true
+          echo ""
+          echo "===== TAIL ====="
+          tail -60 "$RUNNER_TEMP/archive.log" || true

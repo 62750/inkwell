@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import SwiftSoup
 
 // MARK: - XPath 求值引擎
@@ -775,13 +775,27 @@ struct XPathEvaluator {
             return out
 
         case .attribute(let name):
-            return elements.compactMap { el in
-                el.hasAttr(name) ? .attribute(name: name, value: el.attr(name), owner: el) : nil
+            return elements.compactMap { el -> XNode? in
+                guard let has = try? el.hasAttr(name), has else { return nil }
+                let value = (try? el.attr(name)) ?? ""
+                return .attribute(name: name, value: value, owner: el)
             }
         }
     }
 
     // MARK: 谓词求值
+
+    /// 兼容不同 SwiftSoup 版本：attr/hasAttr 在部分版本上是 throws
+    @inline(__always)
+    private static func attrValue(_ e: Element, _ key: String) -> String {
+        (try? e.attr(key)) ?? ""
+    }
+
+    @inline(__always)
+    private static func hasAttrValue(_ e: Element, _ key: String) -> Bool {
+        guard let v = try? e.hasAttr(key) else { return false }
+        return v
+    }
 
     private static func nodeMatches(_ node: XNode, predicate: XPredicate) -> Bool {
         let el = node.elementValue
@@ -789,22 +803,23 @@ struct XPathEvaluator {
 
         switch predicate {
         case .attrExists(let a):
-            return el?.hasAttr(a) ?? false
+            guard let el else { return false }
+            return hasAttrValue(el, a)
         case .attrEquals(let a, let v):
-            guard let el, el.hasAttr(a) else { return false }
-            return el.attr(a) == v
+            guard let el, hasAttrValue(el, a) else { return false }
+            return attrValue(el, a) == v
         case .attrNotEquals(let a, let v):
             guard let el else { return false }
-            return !el.hasAttr(a) || el.attr(a) != v
+            return !hasAttrValue(el, a) || attrValue(el, a) != v
         case .containsAttr(let a, let v):
-            guard let el, el.hasAttr(a) else { return false }
-            return el.attr(a).contains(v)
+            guard let el, hasAttrValue(el, a) else { return false }
+            return attrValue(el, a).contains(v)
         case .startsWithAttr(let a, let v):
-            guard let el, el.hasAttr(a) else { return false }
-            return el.attr(a).hasPrefix(v)
+            guard let el, hasAttrValue(el, a) else { return false }
+            return attrValue(el, a).hasPrefix(v)
         case .endsWithAttr(let a, let v):
-            guard let el, el.hasAttr(a) else { return false }
-            return el.attr(a).hasSuffix(v)
+            guard let el, hasAttrValue(el, a) else { return false }
+            return attrValue(el, a).hasSuffix(v)
         case .textEquals(let v):
             return text.trimmingCharacters(in: .whitespacesAndNewlines) == v
         case .textNotEquals(let v):
@@ -818,8 +833,8 @@ struct XPathEvaluator {
         case .matchesText(let re):
             return text.range(of: re, options: .regularExpression) != nil
         case .matchesAttr(let a, let re):
-            guard let el, el.hasAttr(a) else { return false }
-            return el.attr(a).range(of: re, options: .regularExpression) != nil
+            guard let el, hasAttrValue(el, a) else { return false }
+            return attrValue(el, a).range(of: re, options: .regularExpression) != nil
         case .stringLengthGT(let n):
             return text.count > n
         case .stringLengthLT(let n):
