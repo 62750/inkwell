@@ -15,6 +15,7 @@ struct SourceListView: View {
     @State private var showNewSheet = false
     @State private var showStore = false
     @State private var showHealth = false
+    @State private var showClearConfirm = false
 
     var groups: [String] {
         var set = Set<String>()
@@ -108,6 +109,12 @@ struct SourceListView: View {
 
                         Divider()
 
+                        Button(role: .destructive) {
+                            showClearConfirm = true
+                        } label: { Label("清空全部（只保留内置源）", systemImage: "trash") }
+
+                        Divider()
+
                         Button {
                             showImport = true
                         } label: { Label("从文件导入", systemImage: "doc.badge.plus") }
@@ -140,6 +147,17 @@ struct SourceListView: View {
             }
             .sheet(isPresented: $showHealth) {
                 SourceHealthView().environmentObject(app)
+            }
+            .alert("清空全部书源？", isPresented: $showClearConfirm) {
+                Button("取消", role: .cancel) { }
+                Button("只保留内置源", role: .destructive) {
+                    app.clearAllSources(keepBuiltin: true)
+                }
+                Button("全删（含内置）", role: .destructive) {
+                    app.clearAllSources(keepBuiltin: false)
+                }
+            } message: {
+                Text("导入的书源会被删除，阅读进度和书架不受影响。删完会自动重新同步内置源。")
             }
             .sheet(isPresented: $showImport) {
                 SourceImportView().environmentObject(app)

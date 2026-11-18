@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 // MARK: - 字符串工具
 
@@ -106,20 +106,55 @@ enum StringExt {
     }
 
     /// 相对 URL 转绝对
+    ///
+    /// 关键点：必须把 path / query / fragment 分开处理。
+    /// 早先的写法把 "/search.php?q=xxx&p=1" 整串塞进 URLComponents.path，
+    /// 组件非法导致 comp.url 返回 nil，回退成相对路径，
+    /// 上层 URL(string:) 拿不到 scheme 就报「URL 不合法」。
     static func absolute(_ link: String, base: String) -> String {
         let l = link.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !l.isEmpty else { return l }
         if l.hasPrefix("http://") || l.hasPrefix("https://") { return l }
         if l.hasPrefix("//") { return (base.hasPrefix("https") ? "https:" : "http:") + l }
-        if l.hasPrefix("data:") || l.hasPrefix("blob:") { return l }
-        guard let baseURL = URL(string: base) else { return l }
+        if l.hasPrefix("data:") || l.hasPrefix("blob:") || l.hasPrefix("javascript:") { return l }
+
+        guard let baseURL = URL(string: base), baseURL.scheme != nil else { return l }
+
+        // 拆 fragment
+        var pathPart = l
+        var fragment: String?
+        if let h = pathPart.firstIndex(of: "#") {
+            fragment = String(pathPart[pathPart.index(after: h)...])
+            pathPart = String(pathPart[..<h])
+        }
+        // 拆 query
+        var query: String?
+        if let q = pathPart.firstIndex(of: "?") {
+            query = String(pathPart[pathPart.index(after: q)...])
+            pathPart = String(pathPart[..<q])
+        }
+
         if l.hasPrefix("/") {
             var comp = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
-            comp?.path = l
-            comp?.query = nil
-            return comp?.url?.absoluteString ?? l
+            comp?.path = pathPart
+            comp?.query = query
+            comp?.fragment = fragment
+            if let u = comp?.url?.absoluteString, !u.isEmpty { return u }
+            // 兜底：手工拼接，保证一定带 scheme
+            var s = "\(comp?.scheme ?? baseURL.scheme ?? "https")://\(comp?.host ?? baseURL.host ?? "")"
+            if let port = comp?.port { s += ":\(port)" }
+            s += pathPart
+            if let q = query { s += "?" + q }
+            if let f = fragment { s += "#" + f }
+            return s
         }
-        return URL(string: l, relativeTo: baseURL)?.absoluteString ?? l
+
+        if let abs = URL(string: l, relativeTo: baseURL)?.absoluteString, !abs.isEmpty {
+            return abs
+        }
+        // 兜底：拼在 base 后面
+        let trimmedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+        return trimmedBase + "/" + l
     }
 
     /// Legado 的 {{ }} 变量、{{$.x}} JSON 取值
@@ -133,6 +168,23 @@ enum StringExt {
             out = out.replacingOccurrences(of: "{{\(k)}}", with: v)
         }
         return out
+    }
+
+    /// 清理 URL：去掉没替换掉的 {{变量}}，把 {} | ^ " < > 空格 等非法字符编码
+    static func sanitizeURL(_ raw: String) -> String {
+        var t = raw
+        if t.contains("{{") {
+            t = t.replacingOccurrences(of: "\\{\\{[^}]{0,40}\\}\\}", with: "",
+                                       options: .regularExpression)
+        }
+        // 已经编码过的 %XX 不重复编码
+        var allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%")
+        allowed.insert(charactersIn: "+")
+        if let encoded = t.addingPercentEncoding(withAllowedCharacters: allowed) {
+            t = encoded
+        }
+        return t
     }
 
     static func urlEncode(_ s: String) -> String {

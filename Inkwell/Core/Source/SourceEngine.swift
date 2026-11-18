@@ -53,9 +53,20 @@ enum SearchRequestBuilder {
             .replacingOccurrences(of: "{{key}}", with: key)
             .replacingOccurrences(of: "{{page}}", with: String(page))
 
-        if url.hasPrefix("/") {
-            url = StringExt.absolute(url, base: source.bookSourceUrl)
+        // 直接按 base 拼绝对地址：相对 searchUrl 是最常见的写法，
+        // 走 URLComponents 容易把 "?query" 弄坏，这里用纯字符串拼接最稳。
+        if !url.lowercased().hasPrefix("http://"), !url.lowercased().hasPrefix("https://") {
+            let base = source.bookSourceUrl.hasSuffix("/")
+                ? String(source.bookSourceUrl.dropLast())
+                : source.bookSourceUrl
+            if url.hasPrefix("/") {
+                url = base + url
+            } else if !url.isEmpty {
+                url = base + "/" + url
+            }
         }
+        url = StringExt.sanitizeURL(url)
+        logD("search", "\(source.displayName) 请求：\(method) \(url)")
         return SearchRequest(url: url, method: method, body: body,
                              charset: charset, headers: headers)
     }

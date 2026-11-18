@@ -122,7 +122,7 @@ final class AppState: ObservableObject {
 
     /// 内置源同步版本：每次改内置源内容就 +1
     nonisolated static let builtinSyncVersion = 5
-    private static let builtinSyncKey = "inkwell.builtin.sync.version"
+    static let builtinSyncKey = "inkwell.builtin.sync.version"
 
     /// 清理过期内置源 + 用新版规则覆盖同名内置源。
     /// 只在内置源版本变化时执行，正常启动零开销。
@@ -191,6 +191,35 @@ final class AppState: ObservableObject {
     /// 同步刷新（保存/删除后立刻反映）
     func reloadSourcesNow() {
         sources = sourceRepo.all()
+    }
+
+    /// 一键清理：keepBuiltin=true 时只保留「内置·」分组的源，并强制重新同步内置源
+    func clearAllSources(keepBuiltin: Bool = true) {
+        let targets: [BookSource]
+        if keepBuiltin {
+            targets = sources.filter { !$0.bookSourceGroup.hasPrefix("内置") }
+        } else {
+            targets = sources
+        }
+        guard !targets.isEmpty else {
+            showToast(keepBuiltin ? "除了内置源，没有其它源可删" : "没有书源可删")
+            return
+        }
+        let ids = targets.map { $0.id }
+        sourceRepo.delete(ids: ids)
+        for id in ids { RuleOverlay.shared.clear(sourceId: id) }
+        reloadSourcesNow()
+        showToast("正在清理 \(ids.count) 个源…")
+
+        // 强制下一轮重新同步内置源
+        UserDefaults.standard.set(0, forKey: Self.builtinSyncKey)
+        Task {
+            let r = await Self.syncBuiltinsOffMain()
+            await MainActor.run {
+                self.reloadSourcesNow()
+                self.showToast("已删除 \(ids.count) 个源，内置源 \(r.updated) 个已就绪")
+            }
+        }
     }
 
     func saveSource(_ source: BookSource) {

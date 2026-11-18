@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 import WebKit
 
 // MARK: - Cookie 罐
@@ -136,7 +136,10 @@ final class HTTPClient: @unchecked Sendable {
         allowRedirect: Bool = true,
         maxRetry: Int = 2
     ) async throws -> HTTPResponse {
-        guard let u = URL(string: url), u.scheme != nil else { throw HTTPError.badURL(url) }
+        guard let u = URL(string: url), u.scheme != nil else {
+            logE("http", "URL 不合法：\(url)")
+            throw HTTPError.badURL("\(url)\n（检查书源的 searchUrl / 详情链接是否完整，或站点地址是否为空）")
+        }
 
         await rateLimiter.acquire(host: u.host ?? "")
 

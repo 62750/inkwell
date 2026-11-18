@@ -153,13 +153,40 @@ struct ReaderMenuOverlay: View {
 
 // MARK: - 目录抽屉
 
+enum CatalogMode: Int, CaseIterable {
+    case list = 0
+    case compact = 1
+    case grid = 2
+
+    var label: String {
+        switch self {
+        case .list: return "列表"
+        case .compact: return "紧凑"
+        case .grid: return "网格"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .list: return "list.bullet"
+        case .compact: return "text.alignleft"
+        case .grid: return "square.grid.3x3"
+        }
+    }
+}
+
 struct CatalogOverlay: View {
     @ObservedObject var vm: ReaderViewModel
     @Binding var isPresented: Bool
-    @State private var keyword = ""
-    @State private var reversed = false
 
-    var filtered: [Chapter] {
+    // 用户选择会被记住
+    @AppStorage("inkwell.catalog.mode") private var modeRaw: Int = 0
+    @AppStorage("inkwell.catalog.reversed") private var reversed: Bool = false
+    @State private var keyword = ""
+
+    private var mode: CatalogMode { CatalogMode(rawValue: modeRaw) ?? .list }
+
+    private var filtered: [Chapter] {
         var list = vm.chapters
         if !keyword.isEmpty {
             list = list.filter { $0.title.localizedCaseInsensitiveContains(keyword) }
@@ -174,67 +201,198 @@ struct CatalogOverlay: View {
                 .onTapGesture { isPresented = false }
 
             VStack(spacing: 0) {
-                HStack {
-                    Text("目录").font(.headline)
-                    Spacer()
-                    Button {
-                        reversed.toggle()
-                    } label: {
-                        Image(systemName: reversed ? "arrow.up" : "arrow.down")
-                            .font(.system(size: 13))
-                    }
-                    Button {
-                        isPresented = false
-                    } label: {
-                        Image(systemName: "xmark").font(.system(size: 13))
-                    }
-                    .padding(.leading, 12)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-
-                TextField("搜索章节", text: $keyword)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-
+                header
+                searchBar
                 Divider()
-
-                ScrollViewReader { proxy in
-                    List(filtered) { ch in
-                        Button {
-                            vm.jump(toChapter: ch.index)
-                            isPresented = false
-                        } label: {
-                            HStack {
-                                Text(ch.title)
-                                    .font(.system(size: 13))
-                                    .lineLimit(1)
-                                    .foregroundStyle(ch.index == vm.chapterIndex
-                                                     ? Color.accentColor : .primary)
-                                Spacer()
-                                if ch.isVip {
-                                    Image(systemName: "lock.fill").font(.system(size: 9))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .id(ch.index)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    }
-                    .listStyle(.plain)
-                    .onAppear {
-                        proxy.scrollTo(vm.chapterIndex, anchor: .center)
-                    }
-                }
+                content
             }
-            .frame(width: min(320, UIScreen.main.bounds.width * 0.82))
+            .frame(width: min(340, UIScreen.main.bounds.width * 0.86))
             .background(.regularMaterial)
             .ignoresSafeArea(edges: .vertical)
         }
     }
-}
 
+    // MARK: 顶部
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("目录").font(.headline)
+            Text("\(vm.chapters.count)")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            ForEach(CatalogMode.allCases, id: \.self) { m in
+                Button {
+                    modeRaw = m.rawValue
+                } label: {
+                    Image(systemName: m.icon)
+                        .font(.system(size: 12))
+                        .frame(width: 26, height: 26)
+                        .background(mode == m ? Color.accentColor.opacity(0.18) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .foregroundStyle(mode == m ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                reversed.toggle()
+            } label: {
+                Image(systemName: reversed ? "arrow.up" : "arrow.down")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+            TextField("搜索章节", text: $keyword)
+                .font(.system(size: 12))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !keyword.isEmpty {
+                Button {
+                    keyword = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+        .padding(.horizontal, 14)
+        .padding(.bottom, 10)
+    }
+
+    // MARK: 三种展示
+
+    @ViewBuilder
+    private var content: some View {
+        switch mode {
+        case .list: listMode
+        case .compact: compactMode
+        case .grid: gridMode
+        }
+    }
+
+    private var listMode: some View {
+        ScrollViewReader { proxy in
+            List(filtered) { ch in
+                row(ch, showIndex: false)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14))
+                    .id(ch.index)
+            }
+            .listStyle(.plain)
+            .onAppear { proxy.scrollTo(vm.chapterIndex, anchor: .center) }
+        }
+    }
+
+    private var compactMode: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(filtered) { ch in
+                        row(ch, showIndex: true)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 5)
+                        Divider().opacity(0.25).padding(.leading, 50)
+                    }
+                }
+                .id("catalog")
+            }
+            .onAppear { proxy.scrollTo(vm.chapterIndex, anchor: .center) }
+            .onChange(of: modeRaw) { _, _ in
+                proxy.scrollTo(vm.chapterIndex, anchor: .center)
+            }
+        }
+    }
+
+    private var gridMode: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
+                    ForEach(filtered) { ch in
+                        Button {
+                            vm.jump(toChapter: ch.index)
+                            isPresented = false
+                        } label: {
+                            VStack(spacing: 2) {
+                                Text("\(ch.index + 1)")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(ch.index == vm.chapterIndex
+                                                     ? Color.accentColor : .primary)
+                                Text(ch.title)
+                                    .font(.system(size: 8))
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(ch.index == vm.chapterIndex
+                                        ? Color.accentColor.opacity(0.18)
+                                        : Color.secondary.opacity(0.08),
+                                        in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .id(ch.index)
+                    }
+                }
+                .padding(12)
+            }
+            .onAppear { proxy.scrollTo(vm.chapterIndex, anchor: .center) }
+            .onChange(of: modeRaw) { _, _ in
+                proxy.scrollTo(vm.chapterIndex, anchor: .center)
+            }
+        }
+    }
+
+    private func row(_ ch: Chapter, showIndex: Bool) -> some View {
+        Button {
+            vm.jump(toChapter: ch.index)
+            isPresented = false
+        } label: {
+            HStack(spacing: 6) {
+                if showIndex {
+                    Text("\(ch.index + 1)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 30, alignment: .trailing)
+                }
+                Text(ch.title)
+                    .font(.system(size: showIndex ? 12 : 13))
+                    .lineLimit(1)
+                    .foregroundStyle(ch.index == vm.chapterIndex ? Color.accentColor : .primary)
+                Spacer()
+                if ch.isVip {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .id(ch.index)
+    }
+}
 // MARK: - 阅读设置面板
 
 struct ReaderSettingsPanel: View {
