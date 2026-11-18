@@ -1,4 +1,4 @@
-# 墨阅 Inkwell —— Windows 上触发云端构建并把 IPA 抓回本地
+﻿# 墨阅 Inkwell —— Windows 上触发云端构建并把 IPA 抓回本地
 #
 # 前置：
 #   1. 安装 git 与 GitHub CLI：winget install --id GitHub.cli

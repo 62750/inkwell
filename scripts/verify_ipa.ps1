@@ -1,4 +1,4 @@
-# 校验 IPA 结构是否完整（拿到产物后先跑一遍，再丢给侧载工具）
+﻿# 校验 IPA 结构是否完整（拿到产物后先跑一遍，再丢给侧载工具）
 #
 # 用法：
 #   pwsh ./scripts/verify_ipa.ps1 -Ipa .\dist\Inkwell-20261118-141500-unsigned.ipa
@@ -92,7 +92,7 @@ Write-Host ""
 
 $failed = $checks | Where-Object { -not $_.Ok }
 if ($failed) {
-    Write-Host "有 $($failed.Count) 项不通过，IPA 不可用。" -ForegroundColor Red
+    Write-Host ("有 " + @($failed).Count + " 项不通过，IPA 不可用。") -ForegroundColor Red
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     exit 1
 }
