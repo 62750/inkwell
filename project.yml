@@ -1,4 +1,4 @@
-name: Inkwell
+﻿name: Inkwell
 options:
   bundleIdPrefix: com.inkwell
   deploymentTarget:
@@ -30,13 +30,12 @@ targets:
   Inkwell:
     type: application
     platform: iOS
+    # 注意：Assets.xcassets 必须走 sources，XcodeGen 才会识别成 asset catalog
+    # 交给 actool 编译出 Assets.car；如果放到 resources: 里只会被当普通文件夹复制。
     sources:
       - path: Inkwell
         excludes:
           - "Info.plist"
-          - "Resources"
-    resources:
-      - path: Inkwell/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.inkwell.reader
