@@ -1,0 +1,116 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: "尝试带证书构建（需配置 SIGNING_CERT / SIGNING_PASSWORD secrets）"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          set -e
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Inkwell.xcodeproj \
+            -scheme Inkwell
+
+      - name: Cache derived data
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: dd-${{ runner.os }}-${{ hashFiles('project.yml') }}
+          restore-keys: dd-${{ runner.os }}-
+
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project Inkwell.xcodeproj \
+            -scheme Inkwell \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Inkwell.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            SWIFT_OPTIMIZATION_LEVEL="-Osize" \
+            | tee "$RUNNER_TEMP/archive.log" | tail -40
+
+      - name: Package IPA
+        run: |
+          set -e
+          cd "$RUNNER_TEMP"
+          APP="Inkwell.xcarchive/Products/Applications/Inkwell.app"
+          test -d "$APP" || { echo "归档中没有 Inkwell.app"; exit 1; }
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          codesign --remove-signature Payload/Inkwell.app/Inkwell || true
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+            Payload/Inkwell.app/Info.plist)
+          STAMP=$(date +%Y%m%d-%H%M%S)
+          OUT="Inkwell-${VERSION}-${STAMP}-unsigned.ipa"
+          zip -qr "$OUT" Payload
+          ls -lh "$OUT"
+          echo "IPA_PATH=$RUNNER_TEMP/$OUT" >> "$GITHUB_ENV"
+          echo "IPA_NAME=$OUT" >> "$GITHUB_ENV"
+
+      - name: Verify structure
+        run: |
+          set -e
+          cd "$RUNNER_TEMP"
+          # 校验必要结构
+          unzip -l "$IPA_NAME" | head -30
+          unzip -l "$IPA_NAME" | grep -q "Payload/Inkwell.app/Info.plist" \
+            || { echo "缺少 Info.plist"; exit 1; }
+          unzip -l "$IPA_NAME" | grep -q "Payload/Inkwell.app/Inkwell" \
+            || { echo "缺少可执行文件"; exit 1; }
+          echo "IPA 结构 OK"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Inkwell-ipa
+          path: ${{ env.IPA_PATH }}
+          retention-days: 30
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.IPA_PATH }}
+          generate_release_notes: true
+
+      - name: Show failure log
+        if: failure()
+        run: |
+          echo "===== archive.log tail ====="
+          tail -120 "$RUNNER_TEMP/archive.log" || true

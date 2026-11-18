@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  自签用的 entitlements 模板。
+  把 TEAMID 换成你的 10 位 Team ID，把 com.inkwell.reader 换成你自己的 Bundle ID。
+
+  用法：
+    codesign -f -s "Apple Development: you@example.com (TEAMID)" \
+      --entitlements entitlements.plist \
+      out/Payload/Inkwell.app
+-->
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>TEAMID.com.inkwell.reader</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>TEAMID</string>
+	<key>get-task-allow</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>TEAMID.*</string>
+	</array>
+</dict>
+</plist>
