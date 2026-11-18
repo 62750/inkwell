@@ -59,14 +59,20 @@ final class AppState: ObservableObject {
             self.mark("sources", since: t0)
         }
 
-        // 首次启动：后台写内置源，不阻塞书架
-        if sources.isEmpty {
-            let seeds = BuiltinSources.seeds()
-            await Self.writeSourcesOffMain(seeds)
+        // 补装缺失的内置源（首次启动 + 版本升级都走这里）
+        let seeds = BuiltinSources.seeds()
+        let existingNames = Set(sources.map { $0.bookSourceName })
+        let missing = seeds.filter { !existingNames.contains($0.bookSourceName) }
+        if !missing.isEmpty {
+            await Self.writeSourcesOffMain(missing)
             let reloaded = await Self.readSourcesOffMain()
             await MainActor.run {
                 self.sources = reloaded
-                self.showToast("已安装 \(seeds.count) 个内置源")
+                if sources.isEmpty {
+                    self.showToast("已安装 \(missing.count) 个内置书源")
+                } else {
+                    self.showToast("已补装 \(missing.count) 个新内置书源")
+                }
             }
         }
 

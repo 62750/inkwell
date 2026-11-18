@@ -111,8 +111,11 @@ actor SourceEngine {
             if req.method == "POST" {
                 var h = req.headers
                 h["Content-Type"] = "application/x-www-form-urlencoded; charset=\(req.charset)"
+                // 关键：body 必须按声明的 charset 编码，否则 GBK 站点会收到乱码关键词
+                let bodyEnc = CharsetDetector.encoding(named: req.charset) ?? .utf8
+                let bodyData = req.body.data(using: bodyEnc) ?? Data(req.body.utf8)
                 response = try await http.request(url: req.url, method: "POST", headers: h,
-                                                  body: req.body.data(using: .utf8),
+                                                  body: bodyData,
                                                   encoding: req.charset)
             } else {
                 response = try await http.request(url: req.url, headers: req.headers,

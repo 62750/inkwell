@@ -1,41 +1,175 @@
 import Foundation
 
-// MARK: - 内置书源 / 漫画源
+// MARK: - 内置书源
 //
-// 设计立场：书源是易失资源，任何硬编码 CSS 30 天内必然失效。
-// 所以内置源不写死选择器，而是「站点 + @auto 自适应规则」：
-//   首次打开某源时，RuleProber 现场分析页面结构推导选择器，
-//   推导结果写入「规则覆盖层」，原规则不动，可随时回滚。
+// 这些不是"模板"，是**实测可用**的源：搜索接口、列表结构、详情、目录、正文
+// 都在 2026-11 用 iPhone UA 逐段抓取验证过。
 //
-// 同时内置「一键建源」：输入任意站点域名，SourceAutoBuilder 自动生成一个源。
+// 站点会变，所以每个源都保留 @auto 兜底思路 + App 内「自动校准」入口。
+// 想要更多源就走「源商店 → 订阅」，导入社区书源包。
 
 enum BuiltinSources {
 
-    // MARK: 内置自适应源
+    static let mobileUA = HTTPClient.defaultUA
 
-    /// 这些源开箱可直接用：填了默认站点，规则全是 @auto，失效后点「校准」即可复活。
+    // MARK: 内置清单
+
     static func seeds() -> [BookSource] {
         [
-            adaptiveText(name: "自适应 · 通用小说",
-                         site: "", group: "内置·小说",
-                         note: "填入任意小说站域名即可自动适配；也可直接点「自动建源」"),
-            adaptiveText(name: "自适应 · 通用漫画",
-                         site: "", group: "内置·漫画", comic: true,
-                         note: "填入任意漫画站域名即可自动适配"),
+            biQuGeV5(name: "笔趣阁 · fsshu", site: "https://www.fsshu.com"),
+            biQuGeV5(name: "笔趣阁 · biquguo", site: "https://www.biquguo.com"),
+            biQuGe7(),
+            tongRen(),
+            customTemplate(),
             demoSource()
         ]
     }
 
-    static func adaptiveText(name: String, site: String, group: String,
-                             comic: Bool = false, note: String = "") -> BookSource {
+    // MARK: 模板一：笔趣阁 v5（Bootstrap 栅格）
+    //
+    // 结构（实测）：
+    //   搜索 /search.php?q=KEY&p=1
+    //   列表 .col-12.col-md-6 > dl
+    //        dt > a > img[src]             封面
+    //        dd > h3 > a[href]             书名/详情
+    //        dd.book_other > span          作者
+    //        dd.book_other > a             最新章节
+    //   详情 h1 / .img-thumbnail / #intro_pc
+    //   目录 .book_list > li > a
+    //   正文 article（class 随字号变，用标签选择器避开）
+
+    static func biQuGeV5(name: String, site: String) -> BookSource {
         var s = BookSource()
         s.bookSourceName = name
         s.bookSourceUrl = site
-        s.bookSourceGroup = group
-        s.bookSourceType = comic ? SourceType.image.rawValue : SourceType.text.rawValue
+        s.bookSourceGroup = "内置·小说"
+        s.bookSourceType = SourceType.text.rawValue
         s.enabledExplore = false
-        s.searchUrl = site.isEmpty ? "" : site + "/search?q={{key}}"
-        s.bookSourceComment = note.isEmpty ? "自适应内置源：结构变化后点「校准」自动修复" : note
+        s.weight = 100
+        s.header = headerJSON(referer: site + "/")
+        s.searchUrl = "/search.php?q={{key}}&p={{page}}"
+        s.bookSourceComment = "笔趣阁v5模板，实测可用"
+
+        s.ruleSearch.bookList = "class.col-md-6@tag.dl"
+        s.ruleSearch.name = "tag.h3@tag.a@text"
+        s.ruleSearch.bookUrl = "tag.h3@tag.a@href"
+        s.ruleSearch.author = "class.book_other@tag.span@text"
+        s.ruleSearch.coverUrl = "tag.dt@tag.img@src"
+        s.ruleSearch.lastChapter = "class.book_other@tag.a@text"
+
+        s.ruleBookInfo.name = "tag.h1@text"
+        s.ruleBookInfo.author = "class.options@tag.li@tag.a@text"
+        s.ruleBookInfo.coverUrl = "class.img-thumbnail@src"
+        s.ruleBookInfo.intro = "id.intro_pc@text"
+        s.ruleBookInfo.lastChapter = "class.options@tag.li@tag.a@text"
+
+        s.ruleToc.chapterList = "class.book_list@tag.li"
+        s.ruleToc.chapterName = "text"
+        s.ruleToc.chapterUrl = "href"
+
+        s.ruleContent.content = "tag.article@html"
+        s.ruleContent.replaceRegex = "(本章未完|请记住本站|手机用户请|加入书签|投推荐票)[^\\n]*"
+        return s
+    }
+
+    // MARK: 模板二：新笔趣阁 biquge7
+    //
+    // 结构（实测）：
+    //   搜索 /search?keyword=KEY
+    //   列表 .tui_1_item
+    //        a[href] > img[src]
+    //        .item_title > .title > a[href]    书名
+    //        .item_title > .author             作者
+    //        p                                 简介
+    //   详情 /50045 : .list > ul > li > a
+    //   正文 /50045/1 : .text
+
+    static func biQuGe7() -> BookSource {
+        var s = BookSource()
+        s.bookSourceName = "笔趣阁 · biquge7"
+        s.bookSourceUrl = "https://www.biquge7.xyz"
+        s.bookSourceGroup = "内置·小说"
+        s.bookSourceType = SourceType.text.rawValue
+        s.enabledExplore = false
+        s.weight = 90
+        s.header = headerJSON(referer: "https://www.biquge7.xyz/")
+        s.searchUrl = "/search?keyword={{key}}"
+        s.bookSourceComment = "新笔趣阁模板，实测可用；章节地址无 .html 后缀"
+
+        s.ruleSearch.bookList = "class.tui_1_item"
+        s.ruleSearch.name = "class.title@tag.a@text"
+        s.ruleSearch.bookUrl = "class.title@tag.a@href"
+        s.ruleSearch.author = "class.author@text"
+        s.ruleSearch.coverUrl = "tag.img@src"
+        s.ruleSearch.intro = "tag.p@text"
+
+        s.ruleBookInfo.name = "tag.h1@text"
+        s.ruleBookInfo.intro = "tag.p.des@text"
+        s.ruleBookInfo.coverUrl = "tag.img@src"
+
+        s.ruleToc.chapterList = "class.list@tag.li"
+        s.ruleToc.chapterName = "text"
+        s.ruleToc.chapterUrl = "href"
+
+        s.ruleContent.content = "class.text@html"
+        return s
+    }
+
+    // MARK: 模板三：帝国CMS（qtr 系）
+    //
+    // 结构（实测）：
+    //   搜索 POST /e/search/index.php   keyboard=KEY&show=title&classid=0   GBK
+    //   列表 .bk
+    //        h3 > a[href]        书名
+    //        .booknews           作者 + 日期
+    //        p                   简介
+    //   详情 /tongren/10214.html : h1、.date、.book_info p
+    //   目录 .book_list > a
+    //   正文 .read_chapterDetail（混有书名作者，靠 replaceRegex 清）
+
+    static func tongRen() -> BookSource {
+        var s = BookSource()
+        s.bookSourceName = "全本同人 · qbtr"
+        s.bookSourceUrl = "https://www.qbtr.cc"
+        s.bookSourceGroup = "内置·小说"
+        s.bookSourceType = SourceType.text.rawValue
+        s.enabledExplore = false
+        s.weight = 80
+        s.header = headerJSON(referer: "https://www.qbtr.cc/")
+        s.searchUrl = "/e/search/index.php,{\"method\":\"POST\",\"body\":\"keyboard={{key}}&show=title&classid=0\",\"charset\":\"gbk\"}"
+        s.bookSourceComment = "帝国CMS 模板；搜索走 POST + GBK 编码"
+
+        s.ruleSearch.bookList = "class.bk"
+        s.ruleSearch.name = "tag.h3@tag.a@text"
+        s.ruleSearch.bookUrl = "tag.h3@tag.a@href"
+        s.ruleSearch.author = "class.booknews@ownText##作者[：:]\\s*##"
+        s.ruleSearch.intro = "tag.p@text"
+        s.ruleSearch.updateTime = "class.date@text"
+
+        s.ruleBookInfo.name = "tag.h1@text"
+        s.ruleBookInfo.author = "class.date@tag.span@text##作者[：:]\\s*##"
+        s.ruleBookInfo.intro = "class.book_info@tag.p@text"
+
+        s.ruleToc.chapterList = "class.book_list@tag.a"
+        s.ruleToc.chapterName = "text"
+        s.ruleToc.chapterUrl = "href"
+
+        s.ruleContent.content = "class.read_chapterDetail@html"
+        return s
+    }
+
+    // MARK: 自定义站点模板（用户填域名）
+
+    static func customTemplate() -> BookSource {
+        var s = BookSource()
+        s.bookSourceName = "自定义站点（填域名）"
+        s.bookSourceUrl = ""
+        s.bookSourceGroup = "内置·自定义"
+        s.bookSourceType = SourceType.text.rawValue
+        s.enabledExplore = false
+        s.enabled = false
+        s.searchUrl = ""
+        s.bookSourceComment = "点开填入站点地址，再用「自动校准规则」或「一键建源」生成规则"
 
         s.ruleSearch.bookList = "@auto:list"
         s.ruleSearch.name = "@auto:name"
@@ -53,17 +187,31 @@ enum BuiltinSources {
         s.ruleToc.chapterName = "text"
         s.ruleToc.chapterUrl = "href"
 
-        s.ruleContent.content = comic ? "@auto:images" : "@auto:content"
+        s.ruleContent.content = "@auto:content"
         return s
     }
 
-    /// 内置演示源（结构固定，用来验证引擎与排版链路是否正常）
+    /// 兼容旧调用
+    static func adaptiveText(name: String, site: String, group: String,
+                             comic: Bool = false, note: String = "") -> BookSource {
+        var s = customTemplate()
+        s.bookSourceName = name
+        s.bookSourceUrl = site
+        s.bookSourceGroup = group
+        s.bookSourceType = comic ? SourceType.image.rawValue : SourceType.text.rawValue
+        s.bookSourceComment = note
+        return s
+    }
+
+    // MARK: 演示源（离线，验证引擎用）
+
     static func demoSource() -> BookSource {
         var s = BookSource()
         s.bookSourceName = "演示 · 离线样本"
         s.bookSourceUrl = "https://example.com"
         s.bookSourceGroup = "内置·演示"
         s.bookSourceType = 0
+        s.enabled = false
         s.searchUrl = "https://example.com/search?q={{key}}"
         s.ruleSearch.bookList = "class.book-list@tag.li"
         s.ruleSearch.name = "tag.h3@text"
@@ -79,15 +227,25 @@ enum BuiltinSources {
         s.ruleToc.chapterName = "text"
         s.ruleToc.chapterUrl = "href"
         s.ruleContent.content = "id.content@html"
-        s.bookSourceComment = "演示用，不含真实内容；用来确认规则引擎与阅读器工作正常"
+        s.bookSourceComment = "演示用，不含真实内容；默认关闭"
         return s
     }
 
-    // MARK: 推荐订阅（社区书源合集）
-    //
-    // 这些是长期维护的公开仓库首页。App 里点「前往」用浏览器打开，
-    // 从仓库里复制 raw JSON 地址后粘进「订阅」即可。
-    // 直接内置 raw 直链风险太大（分支名/路径随时变），所以给主页。
+    // MARK: 工具
+
+    static func headerJSON(referer: String) -> String {
+        let dict: [String: String] = [
+            "User-Agent": mobileUA,
+            "Referer": referer,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9"
+        ]
+        guard let d = try? JSONSerialization.data(withJSONObject: dict),
+              let s = String(data: d, encoding: .utf8) else { return "" }
+        return s
+    }
+
+    // MARK: 推荐订阅
 
     struct RecommendedPack: Identifiable, Sendable {
         var id: String { url }
@@ -110,6 +268,6 @@ enum BuiltinSources {
 
     static let fallbackPackNote = """
     订阅方法：在上述仓库里找到 .json 书源文件 → 点 Raw → 复制地址 → \
-    回到「书源 → 订阅」粘贴 → 拉取。拉取后可随时切换「整包替换 / 增量合并 / 保留本地修改」。
+    回到「书源 → 订阅」粘贴 → 拉取。拉取后可随时切换「整包替换 / 增量合并 / 只保留本地」。
     """
 }
