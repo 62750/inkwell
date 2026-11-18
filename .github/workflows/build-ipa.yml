@@ -11,6 +11,10 @@ on:
         type: boolean
         default: false
 
+# 打 tag 时要把 IPA 挂到 Release，需要写权限
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
