@@ -92,6 +92,7 @@ final class AppState: ObservableObject {
         // 启动完成后后台预热剩下的东西
         Task.detached(priority: .background) {
             AppDatabase.shared.warmUp()
+            InboxImporter.purgeOldFiles()
             // 订阅本身不自动拉取：联网行为交给用户
         }
     }
@@ -234,6 +235,27 @@ final class AppState: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             let list = LibraryRepository.shared.allBooks()
             Task { @MainActor in self.books = list }
+        }
+    }
+
+    /// 外部文件导入（「用其他应用打开」→ 墨阅，或 .onOpenURL）
+    func importFile(_ url: URL) {
+        let name = url.lastPathComponent
+        showToast("正在导入 \(name)…")
+        Task.detached {
+            do {
+                let staged = try InboxImporter.stage(url)
+                let book = try LocalBookImporter.importAndStore(at: staged)
+                InboxImporter.cleanUp(staged)
+                await MainActor.run {
+                    self.loadBooks()
+                    self.showToast("已导入：\(book.name)（\(book.totalChapters) 章）")
+                }
+            } catch {
+                await MainActor.run {
+                    self.showToast("导入失败：\(error.localizedDescription)")
+                }
+            }
         }
     }
 

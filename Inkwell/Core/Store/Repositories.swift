@@ -201,6 +201,20 @@ final class LibraryRepository: @unchecked Sendable {
         try? db.dbQueue.write { dbase in try rec.insert(dbase, onConflict: .replace) }
     }
 
+    /// 批量写入正文：一次事务，导入整本书只提交一次
+    func saveContents(_ pairs: [(chapterId: String, content: ContentResult)]) {
+        guard !pairs.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        try? db.dbQueue.write { dbase in
+            for p in pairs {
+                let rec = ContentRecord(id: p.chapterId,
+                                        text: p.content.text,
+                                        imageURLs: p.content.imageUrls.joined(separator: "\n"),
+                                        updatedAt: now)
+                try rec.insert(dbase, onConflict: .replace)
+            }
+        }
+    }
     func clearContent(bookId: String) {
         let ids = chapters(bookId: bookId).map { $0.id }
         guard !ids.isEmpty else { return }

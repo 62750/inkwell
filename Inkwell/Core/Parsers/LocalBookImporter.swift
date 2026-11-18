@@ -1,5 +1,59 @@
-import Foundation
+﻿import Foundation
 
+// MARK: - 外部文件暂存
+//
+// 关键：fileImporter / onOpenURL 给的 URL 带 security scope，
+// 这个权限只在回调期间有效。一旦进到 Task.detached 里再读就会
+// "Operation not permitted"。所以必须先在回调内把文件搬到 App 自己的
+// 临时目录，后台再去解析副本。
+
+enum InboxImporter {
+
+    static var inboxDir: URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inkwell-inbox", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 在安全作用域有效期内把文件复制到临时目录
+    static func stage(_ url: URL) throws -> URL {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+
+        let name = StringExt.safeFileName(url.lastPathComponent, maxLength: 120)
+        let dest = inboxDir.appendingPathComponent(UUID().uuidString.prefix(8) + "_" + name)
+        try? FileManager.default.removeItem(at: dest)
+
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+        } catch {
+            // iCloud / 云盘文件可能不支持 copyItem，退一步直接读字节
+            let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+            guard !data.isEmpty else { throw ParseError.empty }
+            try data.write(to: dest, options: .atomic)
+        }
+
+        let attrs = try? FileManager.default.attributesOfItem(atPath: dest.path)
+        let size = (attrs?[.size] as? Int) ?? 0
+        guard size > 0 else { throw ParseError.empty }
+        return dest
+    }
+
+    static func cleanUp(_ staged: URL) {
+        try? FileManager.default.removeItem(at: staged)
+    }
+
+    static func purgeOldFiles() {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: inboxDir, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        let cutoff = Date().addingTimeInterval(-86_400)
+        for f in files {
+            let created = (try? f.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
+            if created < cutoff { try? FileManager.default.removeItem(at: f) }
+        }
+    }
+}
 // MARK: - 本地文件导入器
 //
 // 任何格式进来 → ParsedBook → Book + [Chapter] + 正文缓存
@@ -80,11 +134,14 @@ enum LocalBookImporter {
         repo.saveChapters(loaded.chapters, bookId: loaded.book.id)
 
         if !loaded.isComic {
+            var pairs: [(chapterId: String, content: ContentResult)] = []
+            pairs.reserveCapacity(loaded.chapters.count)
             for (i, pc) in loaded.parsed.chapters.enumerated() where i < loaded.chapters.count {
                 let content = ContentResult(text: pc.text, html: "", imageUrls: [],
                                             nextPageUrl: nil, isComic: false)
-                repo.saveContent(content, chapterId: loaded.chapters[i].id)
+                pairs.append((loaded.chapters[i].id, content))
             }
+            repo.saveContents(pairs)
         }
         return loaded.book
     }

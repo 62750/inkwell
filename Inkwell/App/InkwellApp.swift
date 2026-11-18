@@ -30,6 +30,11 @@ struct RootView: View {
                 // 首帧渲染完成后才开始加载数据
                 await app.bootstrap()
             }
+            .onOpenURL { url in
+                // 从「文件」「微信」「QQ」等用「用其他应用打开」唤起
+                guard url.isFileURL else { return }
+                app.importFile(url)
+            }
             .overlay(alignment: .bottom) {
                 if let toast = app.toast {
                     Text(toast)

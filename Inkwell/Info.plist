@@ -68,15 +68,17 @@
 			<key>CFBundleTypeName</key>
 			<string>E-Book</string>
 			<key>LSHandlerRank</key>
-			<string>Owner</string>
+			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
+				<string>org.idpf.epub-container</string>
 				<string>public.epub</string>
 				<string>public.plain-text</string>
+				<string>public.text</string>
 				<string>com.adobe.pdf</string>
 				<string>public.zip-archive</string>
-				<string>org.idpf.epub-container</string>
 				<string>public.data</string>
+				<string>public.item</string>
 			</array>
 		</dict>
 	</array>

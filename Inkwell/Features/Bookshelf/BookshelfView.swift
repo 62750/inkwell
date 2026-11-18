@@ -204,14 +204,10 @@ struct BookshelfView: View {
         }
     }
 
+    // 用 .item 放开全部：微信/QQ 导出的 .txt 常被标成 dyn.* 动态 UTI，
+    // 只写 .plainText 会让文件在选择器里变灰、根本点不了。格式由扩展名分流。
     private var importTypes: [UTType] {
-        var types: [UTType] = [.plainText, .pdf, .epub, .zip, .html, .text]
-        if let e = UTType("org.idpf.epub-container") { types.append(e) }
-        // 自定义扩展
-        for ext in ["mobi", "azw", "azw3", "fb2", "cbz", "cbr", "md", "rar"] {
-            if let t = UTType(filenameExtension: ext) { types.append(t) }
-        }
-        return types
+        [.item]
     }
 
     /// 首帧骨架：数据还在后台加载，避免闪一下「书架空空如也」
@@ -277,17 +273,38 @@ struct BookshelfView: View {
             importError = e.localizedDescription
         case .success(let urls):
             guard !urls.isEmpty else { return }
+
+            // 安全作用域只在本次回调期间有效，必须当场把文件搬到临时目录
+            var staged: [URL] = []
+            var errors: [String] = []
+            for url in urls {
+                do {
+                    staged.append(try InboxImporter.stage(url))
+                } catch {
+                    errors.append("\(url.lastPathComponent)：\(error.localizedDescription)")
+                }
+            }
+            guard !staged.isEmpty else {
+                importError = errors.isEmpty ? "无法读取所选文件" : errors.joined(separator: "\n")
+                return
+            }
+
             importing = true
             Task.detached {
-                var errors: [String] = []
-                for url in urls {
+                var allErrors = errors
+                for tmp in staged {
                     do {
-                        _ = try LocalBookImporter.importAndStore(at: url)
+                        _ = try LocalBookImporter.importAndStore(at: tmp)
                     } catch {
-                        errors.append("\(url.lastPathComponent)：\(error.localizedDescription)")
+                        // 临时文件名前缀是随机串，展示时去掉
+                        let clean = tmp.lastPathComponent
+                            .split(separator: "_", maxSplits: 1).last.map(String.init)
+                            ?? tmp.lastPathComponent
+                        allErrors.append("\(clean)：\(error.localizedDescription)")
                     }
+                    InboxImporter.cleanUp(tmp)
                 }
-                let finalErrors = errors
+                let finalErrors = allErrors
                 await MainActor.run {
                     importing = false
                     app.loadBooks()
