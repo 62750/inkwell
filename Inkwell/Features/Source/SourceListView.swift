@@ -14,6 +14,7 @@ struct SourceListView: View {
     @State private var selectedGroup: String? = nil
     @State private var showNewSheet = false
     @State private var showStore = false
+    @State private var showHealth = false
 
     var groups: [String] {
         var set = Set<String>()
@@ -101,6 +102,10 @@ struct SourceListView: View {
                             showStore = true
                         } label: { Label("源商店（内置/订阅/建源）", systemImage: "square.grid.2x2") }
 
+                        Button {
+                            showHealth = true
+                        } label: { Label("书源体检", systemImage: "stethoscope") }
+
                         Divider()
 
                         Button {
@@ -132,6 +137,9 @@ struct SourceListView: View {
             }
             .sheet(isPresented: $showStore) {
                 SourceStoreView().environmentObject(app)
+            }
+            .sheet(isPresented: $showHealth) {
+                SourceHealthView().environmentObject(app)
             }
             .sheet(isPresented: $showImport) {
                 SourceImportView().environmentObject(app)

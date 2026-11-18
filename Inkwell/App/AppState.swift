@@ -59,19 +59,16 @@ final class AppState: ObservableObject {
             self.mark("sources", since: t0)
         }
 
-        // 补装缺失的内置源（首次启动 + 版本升级都走这里）
-        let seeds = BuiltinSources.seeds()
-        let existingNames = Set(sources.map { $0.bookSourceName })
-        let missing = seeds.filter { !existingNames.contains($0.bookSourceName) }
-        if !missing.isEmpty {
-            await Self.writeSourcesOffMain(missing)
+        // 内置源同步：只在版本变化时跑一次（清理旧空壳 + 更新规则），不影响启动速度
+        let synced = await Self.syncBuiltinsOffMain()
+        if synced.changed {
             let reloaded = await Self.readSourcesOffMain()
             await MainActor.run {
                 self.sources = reloaded
-                if sources.isEmpty {
-                    self.showToast("已安装 \(missing.count) 个内置书源")
-                } else {
-                    self.showToast("已补装 \(missing.count) 个新内置书源")
+                if synced.removed > 0 {
+                    self.showToast("已清理 \(synced.removed) 个失效内置源，更新 \(synced.updated) 个")
+                } else if synced.updated > 0 {
+                    self.showToast("已更新 \(synced.updated) 个内置书源")
                 }
             }
         }
@@ -118,6 +115,56 @@ final class AppState: ObservableObject {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 cont.resume(returning: LibraryRepository.shared.allBooks())
+            }
+        }
+    }
+
+    /// 内置源同步版本：每次改内置源内容就 +1
+    nonisolated static let builtinSyncVersion = 5
+    private static let builtinSyncKey = "inkwell.builtin.sync.version"
+
+    /// 清理过期内置源 + 用新版规则覆盖同名内置源。
+    /// 只在内置源版本变化时执行，正常启动零开销。
+    nonisolated static func syncBuiltinsOffMain() async -> (changed: Bool, removed: Int, updated: Int) {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .utility).async {
+                let current = UserDefaults.standard.integer(forKey: builtinSyncKey)
+                guard current != builtinSyncVersion else {
+                    cont.resume(returning: (false, 0, 0))
+                    return
+                }
+                let repo = SourceRepository.shared
+                let existing = repo.all()
+                let seeds = BuiltinSources.seeds()
+                let seedNames = Set(seeds.map { $0.bookSourceName })
+
+                // 1) 删掉不再存在的内置源（旧版空壳、废弃站点）
+                let stale = existing.filter { s in
+                    guard s.bookSourceGroup.hasPrefix("内置") else { return false }
+                    return !seedNames.contains(s.bookSourceName)
+                }
+                if !stale.isEmpty {
+                    repo.delete(ids: stale.map { $0.id })
+                }
+
+                // 2) 同名则用新规则覆盖（保留 id 和用户的启停状态）
+                var toWrite: [BookSource] = []
+                var updated = 0
+                for seed in seeds {
+                    if let old = existing.first(where: { $0.bookSourceName == seed.bookSourceName }) {
+                        var merged = seed
+                        merged.id = old.id
+                        merged.enabled = old.enabled
+                        toWrite.append(merged)
+                        updated += 1
+                    } else {
+                        toWrite.append(seed)
+                        updated += 1
+                    }
+                }
+                repo.saveAll(toWrite)
+                UserDefaults.standard.set(builtinSyncVersion, forKey: builtinSyncKey)
+                cont.resume(returning: (true, stale.count, updated))
             }
         }
     }

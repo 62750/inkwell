@@ -81,12 +81,17 @@ actor SourceEngine {
 
     func search(source: BookSource, key: String, page: Int = 1) async throws -> [Book] {
         let rule = source.ruleSearch
-        guard !rule.bookList.isEmpty else { throw SourceError.ruleMissing("ruleSearch.bookList") }
+        guard !rule.bookList.isEmpty else {
+            throw SourceError.ruleMissing("ruleSearch.bookList —— 列表选择器为空")
+        }
 
-        // searchUrl 为空但有 searchUrl 规则时可跳过
         var searchTemplate = source.searchUrl
         if searchTemplate.isEmpty {
-            throw SourceError.ruleMissing("searchUrl")
+            if source.bookSourceUrl.isEmpty {
+                throw SourceError.ruleMissing(
+                    "站点地址 —— 这个源还没配置。打开「源详情」填地址后点自动校准，或用「源商店 → 一键建源」")
+            }
+            throw SourceError.ruleMissing("searchUrl —— 该源没有配置搜索地址")
         }
 
         var input: RuleInput
@@ -350,7 +355,7 @@ actor SourceEngine {
     func content(source: BookSource, book: Book, chapter: Chapter,
                  maxPages: Int = 5) async throws -> ContentResult {
         let rule = source.ruleContent
-        guard !rule.content.isEmpty else { throw SourceError.ruleMissing("ruleContent.content") }
+        guard !rule.content.isEmpty else { throw SourceError.ruleMissing("ruleContent.content —— 正文规则为空") }
 
         var collected: [String] = []
         var imageURLs: [String] = []
