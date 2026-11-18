@@ -25,6 +25,11 @@ final class JSEngine: @unchecked Sendable {
     /// 单次执行
     static func run(script: String, html: String?, env: JSEnv,
                     sharedVariables: inout [String: String]) -> String {
+        // inout 参数不能进逃逸闭包（@convention(block) 会逃逸到 JSContext），
+        // 所以挪进引用盒子，函数退出时写回
+        let varBox = SharedVarBox(sharedVariables)
+        defer { sharedVariables = varBox.snapshot() }
+
         guard let context = JSContext() else { return "" }
         context.exceptionHandler = { _, exc in
             if let e = exc?.toString() {
@@ -58,11 +63,11 @@ final class JSEngine: @unchecked Sendable {
 
         // java.put / java.get 回写到 Swift
         let putBlock: @convention(block) (String, String) -> Void = { k, v in
-            sharedVariables[k] = v
+            varBox.set(k, v)
         }
         context.setObject(putBlock, forKeyedSubscript: "__put" as NSString)
         let getBlock: @convention(block) (String) -> String = { k in
-            sharedVariables[k] ?? ""
+            varBox.get(k)
         }
         context.setObject(getBlock, forKeyedSubscript: "__get" as NSString)
 
@@ -451,5 +456,33 @@ enum DOMSerializer {
             ]
         }
         return ["text": n.description]
+    }
+}
+
+// MARK: - JS 共享变量盒子
+//
+// JSEngine.run 的 sharedVariables 是 inout，而 java.put/java.get 的桥接闭包
+// 会被 JSContext 持有（逃逸），Swift 不允许逃逸闭包捕获 inout 参数。
+// 用一个加锁的引用类型中转，函数结束时统一写回。
+
+final class SharedVarBox: @unchecked Sendable {
+    private var map: [String: String]
+    private let lock = NSLock()
+
+    init(_ initial: [String: String]) { map = initial }
+
+    func set(_ key: String, _ value: String) {
+        lock.lock(); defer { lock.unlock() }
+        map[key] = value
+    }
+
+    func get(_ key: String) -> String {
+        lock.lock(); defer { lock.unlock() }
+        return map[key] ?? ""
+    }
+
+    func snapshot() -> [String: String] {
+        lock.lock(); defer { lock.unlock() }
+        return map
     }
 }
