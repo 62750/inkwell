@@ -56,7 +56,6 @@ struct BookCoverView: View {
 struct BookshelfView: View {
     @EnvironmentObject var app: AppState
 
-    @State private var showImporter = false
     @State private var readingBook: Book?
     @State private var selectedBook: Book?
     @State private var searchText = ""
@@ -168,20 +167,23 @@ struct BookshelfView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showImporter = true
+                    Menu {
+                        Button {
+                            FilePicker.present { handlePicked($0) }
+                        } label: {
+                            Label("从「文件」选择", systemImage: "folder")
+                        }
+                        Button {
+                            scanDocumentsFolder()
+                        } label: {
+                            Label("扫描「墨阅」目录", systemImage: "arrow.clockwise")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
                 }
             }
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: importTypes,
-                allowsMultipleSelection: true
-            ) { result in
-                handleImport(result)
-            }
+
             .overlay {
                 if importing {
                     ProgressView("正在解析…")
@@ -204,11 +206,6 @@ struct BookshelfView: View {
         }
     }
 
-    // 用 .item 放开全部：微信/QQ 导出的 .txt 常被标成 dyn.* 动态 UTI，
-    // 只写 .plainText 会让文件在选择器里变灰、根本点不了。格式由扩展名分流。
-    private var importTypes: [UTType] {
-        [.item]
-    }
 
     /// 首帧骨架：数据还在后台加载，避免闪一下「书架空空如也」
     private var skeletonState: some View {
@@ -245,7 +242,7 @@ struct BookshelfView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button {
-                showImporter = true
+                FilePicker.present { handlePicked($0) }
             } label: {
                 Label("导入本地书籍", systemImage: "square.and.arrow.down")
                     .padding(.horizontal, 18)
@@ -267,56 +264,62 @@ struct BookshelfView: View {
         readingBook = book
     }
 
-    private func handleImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let e):
-            importError = e.localizedDescription
-        case .success(let urls):
-            guard !urls.isEmpty else { return }
+    /// 扫描「文件」App 里「墨阅」目录（UIFileSharingEnabled 已开启）
+    private func scanDocumentsFolder() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let supported: Set<String> = ["txt", "epub", "pdf", "mobi", "azw", "azw3", "fb2",
+                                      "cbz", "cbr", "html", "htm", "md", "markdown", "zip"]
+        var found: [URL] = []
+        if let items = try? FileManager.default.contentsOfDirectory(
+            at: docs, includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]) {
+            for f in items {
+                var isDir: ObjCBool = false
+                FileManager.default.fileExists(atPath: f.path, isDirectory: &isDir)
+                if isDir.boolValue { continue }
+                guard supported.contains(f.pathExtension.lowercased()) else { continue }
+                found.append(f)
+            }
+        }
+        if found.isEmpty {
+            app.showToast("「文件」App → 我的 iPhone → 墨阅 里没有可导入的书")
+            return
+        }
+        handlePicked(found)
+    }
 
-            // 安全作用域只在本次回调期间有效，必须当场把文件搬到临时目录
-            var staged: [URL] = []
+    /// asCopy: true 已经把文件复制进沙盒，这里直接读
+    private func handlePicked(_ urls: [URL]) {
+        guard !urls.isEmpty else {
+            importError = "没有拿到文件（选择器返回空）"
+            return
+        }
+        importing = true
+        Task.detached {
             var errors: [String] = []
+            var imported = 0
             for url in urls {
                 do {
-                    staged.append(try InboxImporter.stage(url))
+                    _ = try LocalBookImporter.importAndStore(at: url)
+                    imported += 1
                 } catch {
                     errors.append("\(url.lastPathComponent)：\(error.localizedDescription)")
                 }
             }
-            guard !staged.isEmpty else {
-                importError = errors.isEmpty ? "无法读取所选文件" : errors.joined(separator: "\n")
-                return
-            }
-
-            importing = true
-            Task.detached {
-                var allErrors = errors
-                for tmp in staged {
-                    do {
-                        _ = try LocalBookImporter.importAndStore(at: tmp)
-                    } catch {
-                        // 临时文件名前缀是随机串，展示时去掉
-                        let clean = tmp.lastPathComponent
-                            .split(separator: "_", maxSplits: 1).last.map(String.init)
-                            ?? tmp.lastPathComponent
-                        allErrors.append("\(clean)：\(error.localizedDescription)")
-                    }
-                    InboxImporter.cleanUp(tmp)
-                }
-                let finalErrors = allErrors
-                await MainActor.run {
-                    importing = false
-                    app.loadBooks()
-                    if !finalErrors.isEmpty {
-                        importError = finalErrors.joined(separator: "\n")
-                    } else {
-                        app.showToast("导入完成")
-                    }
+            let finalErrors = errors
+            let count = imported
+            await MainActor.run {
+                importing = false
+                app.loadBooks()
+                if !finalErrors.isEmpty {
+                    importError = finalErrors.joined(separator: "\n")
+                } else {
+                    app.showToast("已导入 \(count) 本")
                 }
             }
         }
     }
+
 
     private func loadToc(_ book: Book) async {
         guard !book.isLocal,
