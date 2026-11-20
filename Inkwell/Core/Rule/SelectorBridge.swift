@@ -33,18 +33,17 @@ enum SelectorBridge {
             let t = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
             buffer = ""
             guard !t.isEmpty else { return }
-            if asCSS {
+            // 第一段也要判断：规则写成 "href" / "text" 时它是取值，不是选择器。
+            // 之前第一段无条件当 CSS，导致 chapterUrl="href" 变成"找 <href> 标签"，
+            // 结果 0 个 → 章节链接全空 → 点进去正文空白。
+            if isExtractToken(t) {
+                segments.append(.extract(t))
+            } else if looksLikeSelector(t) {
                 segments.append(.css(normalizeCSS(t)))
             } else {
-                // 判断是取值方式还是继续选择
-                if isExtractToken(t) {
-                    segments.append(.extract(t))
-                } else if looksLikeSelector(t) {
-                    segments.append(.css(normalizeCSS(t)))
-                } else {
-                    segments.append(.extract(t))
-                }
+                segments.append(.extract(t))
             }
+            _ = asCSS
         }
 
         for ch in raw {
@@ -76,21 +75,21 @@ enum SelectorBridge {
         }
     }
 
+    /// 常见 HTML 标签：用来区分「单段规则」到底是选择器还是属性名
+    static let htmlTags: Set<String> = [
+        "a", "abbr", "article", "aside", "b", "blockquote", "br", "button", "dd", "div",
+        "dl", "dt", "em", "figcaption", "figure", "font", "footer", "form", "h1", "h2",
+        "h3", "h4", "h5", "h6", "header", "hr", "i", "img", "input", "label", "li",
+        "main", "nav", "ol", "p", "pre", "section", "small", "span", "strong", "table",
+        "tbody", "td", "th", "thead", "time", "tr", "u", "ul", "video", "body", "html"
+    ]
+
     static func looksLikeSelector(_ t: String) -> Bool {
         if t.hasPrefix("tag.") || t.hasPrefix("class.") || t.hasPrefix("id.") { return true }
         if t.hasPrefix(".") || t.hasPrefix("#") { return true }
-        if t.hasPrefix(">") || t.hasPrefix(":") { return true }
-        // 形如 div.list
-        if t.contains(".") || t.contains(" ") || t.contains(">") || t.contains("[") {
-            let firstToken = t.split(separator: ".").first.map(String.init) ?? t
-            if firstToken.rangeOfCharacter(from: CharacterSet(charactersIn: " \t>#[]")) != nil {
-                return true
-            }
-            if ["div", "span", "a", "li", "ul", "ol", "p", "img", "h1", "h2", "h3",
-                "h4", "h5", "table", "tr", "td", "dl", "dd", "dt"].contains(firstToken) {
-                return true
-            }
-        }
+        if t.hasPrefix(">") || t.hasPrefix(":") || t.hasPrefix("*") { return true }
+        if t.contains(".") || t.contains(" ") || t.contains(">") || t.contains("[") { return true }
+        if htmlTags.contains(t.lowercased()) { return true }
         return false
     }
 
@@ -148,6 +147,8 @@ enum SelectorBridge {
             case .extract(let kind):
                 extractKind = kind
                 isElementStage = true
+                // 规则只有取值（如 "href"），直接作用在当前元素上
+                if elements.isEmpty { elements = [root] }
             }
         }
 

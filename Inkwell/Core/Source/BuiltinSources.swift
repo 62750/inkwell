@@ -1,4 +1,4 @@
-import Foundation
+﻿import Foundation
 
 // MARK: - 内置书源
 //
@@ -63,7 +63,7 @@ enum BuiltinSources {
         s.ruleBookInfo.intro = "id.intro_pc@text"
         s.ruleBookInfo.lastChapter = "class.options@tag.li@tag.a@text"
 
-        s.ruleToc.chapterList = "class.book_list@tag.li"
+        s.ruleToc.chapterList = "class.book_list@tag.a"
         s.ruleToc.chapterName = "text"
         s.ruleToc.chapterUrl = "href"
 
@@ -107,8 +107,8 @@ enum BuiltinSources {
         s.ruleBookInfo.intro = "tag.p.des@text"
         s.ruleBookInfo.coverUrl = "tag.img@src"
 
-        s.ruleToc.chapterList = "class.list@tag.li"
-        s.ruleToc.chapterName = "text"
+        s.ruleToc.chapterList = "class.list@tag.li@tag.a"
+        s.ruleToc.chapterName = ""
         s.ruleToc.chapterUrl = "href"
 
         s.ruleContent.content = "class.text@html"

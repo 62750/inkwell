@@ -121,7 +121,7 @@ final class AppState: ObservableObject {
     }
 
     /// 内置源同步版本：每次改内置源内容就 +1
-    nonisolated static let builtinSyncVersion = 5
+    nonisolated static let builtinSyncVersion = 6
     static let builtinSyncKey = "inkwell.builtin.sync.version"
 
     /// 清理过期内置源 + 用新版规则覆盖同名内置源。
