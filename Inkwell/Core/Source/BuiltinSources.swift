@@ -20,6 +20,10 @@ enum BuiltinSources {
             biQuGeV5(name: "笔趣阁 · biquguo", site: "https://www.biquguo.com"),
             biQuGe7(),
             tongRen(),
+            comicSource(name: "漫画 · 包子镜像", site: "https://www.webmota.com",
+                        searchPath: "/search?q={{key}}", note: "搜索可用；章节页为 JS 渲染，若目录为空请改用社区漫画源包"),
+            comicSource(name: "漫画 · MacCMS", site: "https://www.yoyomanga.com",
+                        searchPath: "/search?type=1&searchString={{key}}", note: "MacCMS 站点；搜索接口常被 Cloudflare 拦，作为发现入口"),
             customTemplate(),
             demoSource()
         ]
@@ -155,6 +159,43 @@ enum BuiltinSources {
         s.ruleToc.chapterUrl = "href"
 
         s.ruleContent.content = "class.read_chapterDetail@html"
+        return s
+    }
+
+    // MARK: 漫画源
+    //
+    // 漫画站普遍是客户端渲染 + Cloudflare，纯 HTML 能抓到的少。
+    // 这里给的是「站点 + 自适应规则」：搜索/封面/标题走真实结构，
+    // 章节与图片交给运行时 RuleProber 现场推导。
+
+    static func comicSource(name: String, site: String, searchPath: String,
+                            note: String = "") -> BookSource {
+        var s = BookSource()
+        s.bookSourceName = name
+        s.bookSourceUrl = site
+        s.bookSourceGroup = "内置·漫画"
+        s.bookSourceType = SourceType.image.rawValue
+        s.enabledExplore = false
+        s.weight = 70
+        s.header = headerJSON(referer: site + "/")
+        s.searchUrl = searchPath
+        s.bookSourceComment = note.isEmpty ? "自适应漫画源" : note
+
+        s.ruleSearch.bookList = "@auto:list"
+        s.ruleSearch.name = "@auto:name"
+        s.ruleSearch.bookUrl = "@auto:url"
+        s.ruleSearch.coverUrl = "@auto:cover"
+        s.ruleSearch.author = "@auto:author"
+
+        s.ruleBookInfo.name = "@auto:name"
+        s.ruleBookInfo.coverUrl = "@auto:cover"
+        s.ruleBookInfo.intro = "@auto:intro"
+
+        s.ruleToc.chapterList = "@auto:chapterList"
+        s.ruleToc.chapterName = "text"
+        s.ruleToc.chapterUrl = "href"
+
+        s.ruleContent.content = "@auto:images"
         return s
     }
 

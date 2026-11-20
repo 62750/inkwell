@@ -32,6 +32,7 @@ struct ReaderContainerView: View {
                     .padding(20)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .opacity(vm.showMenu ? 0 : 1)
+                    .allowsHitTesting(false)   // 加载中也能点出菜单
             }
 
             // 顶部/底部菜单
@@ -82,40 +83,59 @@ struct TextReaderView: View {
 
     var body: some View {
         GeometryReader { geo in
+            // 竖条占用右侧固定宽度，正文让出来，避免压字
+            let showBar = vm.settings.showChapterBar && vm.pageCount > 1
+            let barReserve: CGFloat = showBar ? 26 : 0
             let inner = CGSize(
-                width: max(80, geo.size.width - vm.settings.marginH * 2),
-                height: max(80, geo.size.height - vm.settings.marginV * 2)
-                    - footerHeight
+                width: max(80, geo.size.width - vm.settings.marginH * 2 - barReserve),
+                height: max(80, geo.size.height - vm.settings.marginV * 2) - footerHeight
             )
 
-            ZStack {
-                if vm.settings.turnMode == .scroll {
-                    scrollBody(size: inner)
-                } else {
-                    pagedBody(size: inner)
+            ZStack(alignment: .trailing) {
+                // ---- 正文 ----
+                Group {
+                    if vm.settings.turnMode == .scroll {
+                        scrollBody(size: inner)
+                    } else {
+                        pagedBody(size: inner)
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, vm.settings.marginH)
-            .padding(.top, vm.settings.marginV)
-            .padding(.bottom, vm.settings.marginV)
-            .overlay(alignment: .bottom) {
-                if vm.settings.showProgress {
-                    footer
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, vm.settings.marginH)
+                .padding(.top, vm.settings.marginV)
+                .padding(.bottom, vm.settings.marginV)
+                .overlay(alignment: .bottom) {
+                    if vm.settings.showProgress { footer }
                 }
-            }
-            .overlay(alignment: .trailing) {
-                if vm.settings.showChapterBar, vm.pageCount > 1 {
+                .overlay(alignment: .top) {
+                    if !vm.showMenu { chapterHeader }
+                }
+
+                // ---- 唤出菜单的点击层：菜单关闭时常驻，任何状态（含加载中）都能点 ----
+                if !vm.showMenu {
+                    HStack(spacing: 0) {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { vm.showMenu = true }
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { vm.showMenu.toggle() }
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { vm.showMenu = true }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                // ---- 右侧章内进度条：ZStack 最上层，直接贴右边缘 ----
+                // 之前用 .padding(.trailing, -marginH + 1) 把它推出了屏幕，所以看不见
+                if showBar {
                     ChapterProgressBar(progress: vm.chapterProgress) { ratio in
                         vm.jumpToPage(ratio: ratio)
                     }
-                    .padding(.trailing, -vm.settings.marginH + 1)
-                    .opacity(vm.showMenu ? 0.3 : 1)
-                }
-            }
-            .overlay(alignment: .top) {
-                if !vm.showMenu {
-                    chapterHeader
+                    .frame(width: 24)
+                    .padding(.vertical, vm.settings.marginV + 4)
+                    .allowsHitTesting(!vm.showMenu)
                 }
             }
             .task(id: inner) {
@@ -126,6 +146,9 @@ struct TextReaderView: View {
                 vm.repaginate(size: inner)
             }
             .onChange(of: geo.size) { _, _ in
+                vm.repaginate(size: inner)
+            }
+            .onChange(of: vm.chapterIndex) { _, _ in
                 vm.repaginate(size: inner)
             }
         }
@@ -160,28 +183,12 @@ struct TextReaderView: View {
                     theme: vm.settings.theme
                 )
                 .tag(i)
-                .overlay(tapZones)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
     }
 
-    private var tapZones: some View {
-        HStack(spacing: 0) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { vm.showMenu = true }
-                .frame(maxWidth: .infinity)
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { vm.showMenu.toggle() }
-                .frame(maxWidth: .infinity)
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { vm.showMenu = true }
-                .frame(maxWidth: .infinity)
-        }
-    }
+
 
     // MARK: 滚动模式
 
