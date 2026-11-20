@@ -135,9 +135,7 @@ struct TextReaderView: View {
             .onChange(of: geo.size) { _, _ in
                 vm.repaginate(size: inner)
             }
-            .onChange(of: vm.chapterIndex) { _, _ in
-                vm.repaginate(size: inner)
-            }
+
         }
     }
 
@@ -199,12 +197,18 @@ struct TextReaderView: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: vm.settings.fontSize * 0.5) {
                         ForEach(Array(vm.scrollParagraphs.enumerated()), id: \.offset) { idx, para in
-                            Text(para)
+                            Text(para.text)
                                 .font(Font(vm.settings.uiFont))
                                 .lineSpacing(vm.settings.fontSize * (vm.settings.lineHeightMultiple - 1))
                                 .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(idx)
+                                .id(para.id)
+                                .onAppear {
+                                    // 滚到倒数第 2 段就开始预取下一章，滚到底即无缝衔接
+                                    if idx >= vm.scrollParagraphs.count - 2 {
+                                        vm.requestAppendNextChapter()
+                                    }
+                                }
                         }
                     }
                     .padding(.vertical, 8)
@@ -226,7 +230,7 @@ struct TextReaderView: View {
                 get: { scrollPos },
                 set: { new in
                     scrollPos = new
-                    if let new { vm.visibleParagraph = new }
+                    if let new { vm.updateVisibleParagraph(new) }
                 }
             ))
             .onChange(of: vm.scrollRequest) { req in
@@ -261,7 +265,7 @@ struct TextReaderView: View {
                 .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
             Spacer()
             if vm.settings.turnMode == .scroll {
-                Text("\(vm.visibleParagraph + 1) / \(max(1, vm.scrollParagraphs.count))")
+                Text("第 \(vm.chapterIndex + 1) 章 · \(vm.visibleParagraph + 1)/\(max(1, vm.scrollParagraphs.count))")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
             } else {

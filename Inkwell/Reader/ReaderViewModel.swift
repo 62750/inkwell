@@ -2,6 +2,13 @@ import Foundation
 import SwiftUI
 import Combine
 
+/// 滚动模式下的段落（带所属章节索引，用于跨章节连续滚动）
+struct ScrollParagraph: Identifiable, Equatable {
+    let id: Int
+    let chapterIndex: Int
+    let text: String
+}
+
 // MARK: - 阅读器状态机
 //
 // 负责：加载章节 → 取正文（本地缓存优先 / 网络兜底）→ 排版分页 → 翻页 → 存进度
@@ -28,9 +35,15 @@ final class ReaderViewModel: ObservableObject {
     @Published var showSettings = false
     @Published var showSourceSwap = false
     // 滚动模式：段落数组 + 可见段落 + 跳转请求
-    @Published var scrollParagraphs: [String] = []
+    @Published var scrollParagraphs: [ScrollParagraph] = []
     @Published var visibleParagraph: Int = 0
     @Published var scrollRequest: Int? = nil
+    @Published var scrollEndChapter: Int = 0
+    private var isAppendingChapter = false
+    private var lastProgressSave: TimeInterval = 0
+    // 当前可见章节在滚动流中的段落范围（用于章内百分比）
+    private var chapterStartInFlow: Int = 0
+    private var chapterEndInFlow: Int = 0
     @Published var settings: ReadingSettings
 
     private var anchorChar: Int = 0
@@ -137,39 +150,48 @@ final class ReaderViewModel: ObservableObject {
             return
         }
 
-        let text: String
-        if let cached = contentCache[index] {
-            text = cached
-        } else if let stored = libraryRepo.content(chapterId: chapter.id), !stored.text.isEmpty {
-            text = stored.text
-            contentCache[index] = text
-        } else if book.isLocal {
-            text = loadLocalText(chapter)
-            contentCache[index] = text
-        } else if let source = SourceRepository.shared.source(id: book.sourceId) {
-            do {
-                let result = try await SourceEngine.shared.content(source: source,
-                                                                   book: book, chapter: chapter)
-                text = result.text.isEmpty
-                    ? "（本章内容为空：可能是 VIP 章节，或正文规则需要调整）"
-                    : result.text
-                contentCache[index] = text
-                libraryRepo.saveContent(result, chapterId: chapter.id)
-            } catch {
-                text = "加载失败：\(error.localizedDescription)"
-                await MainActor.run { self.errorMessage = error.localizedDescription }
-            }
-        } else {
-            text = "书源已被删除，无法加载在线章节"
-        }
+        let text = await fetchChapterText(chapter, at: index)
 
         await MainActor.run {
             self.pendingText = text
-            self.scrollParagraphs = Self.splitParagraphs(text)
+            self.scrollParagraphs = Self.makeScrollParagraphs(text, chapterIndex: index)
+            self.scrollEndChapter = index
             self.visibleParagraph = 0
+            self.chapterStartInFlow = 0
+            self.chapterEndInFlow = max(0, self.scrollParagraphs.count - 1)
             self.loading = false
         }
         prefetchNeighbors()
+    }
+
+    /// 获取章节文本（缓存优先，网络兜底），不改变任何阅读状态
+    private func fetchChapterText(_ chapter: Chapter, at index: Int) async -> String {
+        if let cached = contentCache[index] { return cached }
+        if let stored = libraryRepo.content(chapterId: chapter.id), !stored.text.isEmpty {
+            contentCache[index] = stored.text
+            return stored.text
+        }
+        if book.isLocal {
+            let t = loadLocalText(chapter)
+            contentCache[index] = t
+            return t
+        }
+        if let source = SourceRepository.shared.source(id: book.sourceId) {
+            do {
+                let result = try await SourceEngine.shared.content(source: source,
+                                                                   book: book, chapter: chapter)
+                let t = result.text.isEmpty
+                    ? "（本章内容为空：可能是 VIP 章节，或正文规则需要调整）"
+                    : result.text
+                contentCache[index] = t
+                libraryRepo.saveContent(result, chapterId: chapter.id)
+                return t
+            } catch {
+                await MainActor.run { self.errorMessage = error.localizedDescription }
+                return "加载失败：\(error.localizedDescription)"
+            }
+        }
+        return "书源已被删除，无法加载在线章节"
     }
 
     private func loadLocalText(_ chapter: Chapter) -> String {
@@ -277,13 +299,20 @@ final class ReaderViewModel: ObservableObject {
         guard !chapters.isEmpty else { return }
         let total = max(1, chapters.count)
         let chapterPart = Double(chapterIndex) / Double(total)
-        let pagePart = pageCount > 0
-            ? Double(pageIndex) / Double(max(1, pageCount)) / Double(total)
-            : 0
-        let percent = min(1.0, chapterPart + pagePart)
+        let percent: Double
+        if settings.turnMode == .scroll {
+            let span = chapterEndInFlow - chapterStartInFlow
+            let pos = span > 0 ? Double(max(0, visibleParagraph - chapterStartInFlow)) / Double(span) : 0
+            percent = min(1.0, chapterPart + pos / Double(total))
+        } else {
+            let pagePart = pageCount > 0
+                ? Double(pageIndex) / Double(max(1, pageCount)) / Double(total)
+                : 0
+            percent = min(1.0, chapterPart + pagePart)
+        }
         let p = ReadingProgress(bookId: book.id, chapterIndex: chapterIndex,
                                 chapterTitle: currentChapter?.title ?? "",
-                                pageInChapter: pageIndex,
+                                pageInChapter: visibleParagraph,
                                 charOffset: anchorChar,
                                 percent: percent, updatedAt: Date())
         libraryRepo.saveProgress(p)
@@ -334,13 +363,64 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
+    /// 滚动到底部时调用：加载下一章并追加到滚动流末尾，实现无缝衔接
+    func requestAppendNextChapter() {
+        guard !isAppendingChapter else { return }
+        let next = scrollEndChapter + 1
+        guard next < chapters.count else { return }
+        isAppendingChapter = true
+        let chapter = chapters[next]
+        let index = next
+        Task {
+            let text = await fetchChapterText(chapter, at: index)
+            let paras = Self.makeScrollParagraphs(text, chapterIndex: index)
+            await MainActor.run {
+                let startId = self.scrollParagraphs.count
+                let appended = paras.enumerated().map { i, p in
+                    ScrollParagraph(id: startId + i, chapterIndex: index, text: p.text)
+                }
+                self.scrollParagraphs.append(contentsOf: appended)
+                self.scrollEndChapter = index
+                self.isAppendingChapter = false
+            }
+        }
+    }
+
+    /// 重新计算当前可见章节在滚动流中的起止段落
+    private func recalcChapterRange(at idx: Int) {
+        guard idx >= 0, idx < scrollParagraphs.count else { return }
+        let cur = scrollParagraphs[idx].chapterIndex
+        var start = idx, end = idx
+        while start > 0 && scrollParagraphs[start - 1].chapterIndex == cur { start -= 1 }
+        while end < scrollParagraphs.count - 1 && scrollParagraphs[end + 1].chapterIndex == cur { end += 1 }
+        chapterStartInFlow = start
+        chapterEndInFlow = end
+    }
+
+    /// 滚动位置回写：跨章时同步当前章节号（不触发 repaginate）
+    func updateVisibleParagraph(_ idx: Int) {
+        visibleParagraph = idx
+        guard idx >= 0, idx < scrollParagraphs.count else { return }
+        let seg = scrollParagraphs[idx]
+        if seg.chapterIndex != chapterIndex {
+            chapterIndex = seg.chapterIndex
+            recalcChapterRange(at: idx)
+        }
+        let now = Date().timeIntervalSince1970
+        if now - lastProgressSave > 2 {
+            lastProgressSave = now
+            saveProgress()
+        }
+    }
+
     /// 统一的章内跳转：分页模式切页，滚动模式滚动到对应段落
     func jumpToProgress(ratio: Double) {
         let clamped = min(1, max(0, ratio))
         if settings.turnMode == .scroll {
-            let n = scrollParagraphs.count
-            guard n > 1 else { return }
-            let target = min(n - 1, max(0, Int((Double(n - 1) * clamped).rounded())))
+            let start = chapterStartInFlow
+            let span = chapterEndInFlow - start
+            guard span > 0 else { return }
+            let target = min(chapterEndInFlow, max(start, start + Int((Double(span) * clamped).rounded())))
             visibleParagraph = target
             scrollRequest = target
             saveProgress()
@@ -352,13 +432,21 @@ final class ReaderViewModel: ObservableObject {
     /// 当前在本章的进度 0...1（顶部=0，底部=1）
     var chapterProgress: Double {
         if settings.turnMode == .scroll {
-            let n = scrollParagraphs.count
-            guard n > 1 else { return 0 }
-            return Double(visibleParagraph) / Double(n - 1)
+            let span = chapterEndInFlow - chapterStartInFlow
+            guard span > 0 else { return 0 }
+            let pos = min(span, max(0, visibleParagraph - chapterStartInFlow))
+            return Double(pos) / Double(span)
         }
         guard let p = paginated, p.pageCount > 0 else { return 0 }
         if p.pageCount == 1 { return 1 }
         return Double(pageIndex) / Double(p.pageCount - 1)
+    }
+
+    /// 把文本拆成带章节索引的滚动段落
+    private static func makeScrollParagraphs(_ text: String, chapterIndex: Int) -> [ScrollParagraph] {
+        splitParagraphs(text).enumerated().map {
+            ScrollParagraph(id: $0.offset, chapterIndex: chapterIndex, text: $0.element)
+        }
     }
 
     /// 把整章文本拆成可懒加载的段落（长段再按句号拆小）
