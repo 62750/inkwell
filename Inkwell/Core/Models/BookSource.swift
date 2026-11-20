@@ -1,4 +1,11 @@
-﻿import Foundation
+import Foundation
+
+/// 排行榜 / 分类条目
+struct ExploreCategory: Identifiable, Sendable, Hashable {
+    let name: String
+    let url: String
+    var id: String { name }
+}
 
 /// 书源类型
 enum SourceType: Int, Codable, CaseIterable, Sendable {
@@ -177,6 +184,21 @@ struct BookSource: Codable, Hashable, Identifiable, Sendable {
     var type: SourceType { SourceType(rawValue: bookSourceType) ?? .text }
     var isComic: Bool { type == .image }
     var displayName: String { bookSourceName.isEmpty ? (URL(string: bookSourceUrl)?.host ?? "未命名源") : bookSourceName }
+
+    /// 解析 exploreUrl 的「名称::URL」多行格式，供排行榜 / 分类使用
+    var exploreCategories: [ExploreCategory] {
+        guard !exploreUrl.isEmpty else { return [] }
+        return exploreUrl
+            .components(separatedBy: "\n")
+            .compactMap { line in
+                let parts = line.split(separator: "::", maxSplits: 1).map(String.init)
+                guard parts.count == 2 else { return nil }
+                let n = parts[0].trimmingCharacters(in: .whitespaces)
+                let u = parts[1].trimmingCharacters(in: .whitespaces)
+                guard !n.isEmpty, !u.isEmpty else { return nil }
+                return ExploreCategory(name: n, url: u)
+            }
+    }
     var host: String { URL(string: bookSourceUrl)?.host ?? bookSourceUrl }
 
     var groupList: [String] {

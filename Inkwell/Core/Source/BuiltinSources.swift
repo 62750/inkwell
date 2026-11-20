@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 
 // MARK: - 内置书源
 //
@@ -48,11 +48,19 @@ enum BuiltinSources {
         s.bookSourceUrl = site
         s.bookSourceGroup = "内置·小说"
         s.bookSourceType = SourceType.text.rawValue
-        s.enabledExplore = false
+        s.enabledExplore = true
         s.weight = 100
         s.header = headerJSON(referer: site + "/")
         s.searchUrl = "/search.php?q={{key}}&p={{page}}"
+        s.exploreUrl = "热门::\(site)/top/\n玄幻::\(site)/list1/\n武侠::\(site)/list2/\n都市::\(site)/list3/\n历史::\(site)/list4/\n网游::\(site)/list5/\n科幻::\(site)/list6/\n言情::\(site)/list7/\n其他::\(site)/list8/"
         s.bookSourceComment = "笔趣阁v5模板，实测可用"
+
+        // 排行榜 / 分类页与搜索页同结构，复用同一套规则
+        s.ruleExplore.bookList = "class.col-md-6@tag.dl"
+        s.ruleExplore.name = "tag.h3@tag.a@text"
+        s.ruleExplore.bookUrl = "tag.h3@tag.a@href"
+        s.ruleExplore.author = "class.book_other@tag.span@text"
+        s.ruleExplore.coverUrl = "tag.dt@tag.img@src"
 
         s.ruleSearch.bookList = "class.col-md-6@tag.dl"
         s.ruleSearch.name = "tag.h3@tag.a@text"
@@ -94,9 +102,15 @@ enum BuiltinSources {
         s.bookSourceUrl = "https://www.biquge7.xyz"
         s.bookSourceGroup = "内置·小说"
         s.bookSourceType = SourceType.text.rawValue
-        s.enabledExplore = false
+        s.enabledExplore = true
         s.weight = 90
         s.header = headerJSON(referer: "https://www.biquge7.xyz/")
+        s.exploreUrl = "首页::https://www.biquge7.xyz/"
+        s.ruleExplore.bookList = "@auto:list"
+        s.ruleExplore.name = "@auto:name"
+        s.ruleExplore.bookUrl = "@auto:url"
+        s.ruleExplore.author = "@auto:author"
+        s.ruleExplore.coverUrl = "@auto:cover"
         s.searchUrl = "/search?keyword={{key}}"
         s.bookSourceComment = "新笔趣阁模板，实测可用；章节地址无 .html 后缀"
 
@@ -137,9 +151,13 @@ enum BuiltinSources {
         s.bookSourceUrl = "https://www.qbtr.cc"
         s.bookSourceGroup = "内置·小说"
         s.bookSourceType = SourceType.text.rawValue
-        s.enabledExplore = false
+        s.enabledExplore = true
         s.weight = 80
         s.header = headerJSON(referer: "https://www.qbtr.cc/")
+        s.exploreUrl = "热门::https://www.qbtr.cc/hot/\n同人::https://www.qbtr.cc/tongren/\n常规::https://www.qbtr.cc/changgui/"
+        s.ruleExplore.bookList = "class.bk"
+        s.ruleExplore.name = "tag.h3@tag.a@text"
+        s.ruleExplore.bookUrl = "tag.h3@tag.a@href"
         s.searchUrl = "/e/search/index.php,{\"method\":\"POST\",\"body\":\"keyboard={{key}}&show=title&classid=0\",\"charset\":\"gbk\"}"
         s.bookSourceComment = "帝国CMS 模板；搜索走 POST + GBK 编码"
 

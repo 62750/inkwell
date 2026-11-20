@@ -6,71 +6,26 @@ struct DiscoverView: View {
     @EnvironmentObject var app: AppState
     @State private var showSearch = false
     @State private var keyword = ""
-    @State private var selectedSource: BookSource?
-    @State private var exploreBooks: [Book] = []
-    @State private var loading = false
+    @State private var browseTarget: BrowseTarget?
 
     private let hotWords = ["玄幻", "都市", "悬疑", "科幻", "言情", "历史",
                             "无限流", "修仙", "系统", "群像"]
+
+    struct BrowseTarget: Identifiable {
+        let id = UUID()
+        let source: BookSource
+        let url: String
+        let title: String
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     searchBar
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("热门搜索").font(.headline)
-                        FlowLayout(spacing: 8) {
-                            ForEach(hotWords, id: \.self) { w in
-                                Button {
-                                    keyword = w
-                                    showSearch = true
-                                } label: {
-                                    Text(w)
-                                        .font(.subheadline)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 7)
-                                        .background(Color.secondary.opacity(0.10), in: Capsule())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("书源").font(.headline)
-                            Spacer()
-                            Text("\(app.enabledSources.count) 个可用")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        ForEach(app.enabledSources.prefix(20)) { s in
-                            Button {
-                                selectedSource = s
-                                explore(s)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: s.isComic ? "photo.on.rectangle" : "book")
-                                        .frame(width: 22)
-                                        .foregroundStyle(s.isComic ? .orange : .accentColor)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(s.displayName).font(.subheadline)
-                                        Text(s.host).font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption2).foregroundStyle(.tertiary)
-                                }
-                                .padding(.vertical, 4)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if app.enabledSources.isEmpty {
-                            Text("还没有启用的书源，去「书源」页导入或新建")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+                    hotWordsSection
+                    exploreSection
+                    sourceSection
                 }
                 .padding(16)
             }
@@ -78,17 +33,16 @@ struct DiscoverView: View {
             .sheet(isPresented: $showSearch) {
                 SearchView(initialKeyword: keyword).environmentObject(app)
             }
-            .sheet(item: $selectedSource) { source in
-                SourceBrowseView(source: source).environmentObject(app)
-            }
-            .overlay {
-                if loading {
-                    ProgressView().padding(20)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
+            .sheet(item: $browseTarget) { target in
+                SourceBrowseView(source: target.source,
+                                 initialURL: target.url,
+                                 title: target.title)
+                    .environmentObject(app)
             }
         }
     }
+
+    // MARK: 搜索
 
     private var searchBar: some View {
         Button {
@@ -107,23 +61,113 @@ struct DiscoverView: View {
         .buttonStyle(.plain)
     }
 
-    private func explore(_ source: BookSource) {
-        guard source.enabledExplore else { return }
-        loading = true
-        Task.detached {
-            defer { Task { await MainActor.run { loading = false } } }
-            _ = try? await SourceEngine.shared.explore(source: source, url: "")
-            await MainActor.run { loading = false }
+    // MARK: 热门搜索
+
+    private var hotWordsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("热门搜索").font(.headline)
+            FlowLayout(spacing: 8) {
+                ForEach(hotWords, id: \.self) { w in
+                    Button {
+                        keyword = w
+                        showSearch = true
+                    } label: {
+                        Text(w)
+                            .font(.subheadline)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(Color.secondary.opacity(0.10), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: 排行榜 / 分类
+
+    @ViewBuilder
+    private var exploreSection: some View {
+        let sources = app.enabledSources.filter {
+            $0.enabledExplore && !$0.exploreCategories.isEmpty
+        }
+        if !sources.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("排行榜 & 分类").font(.headline)
+                ForEach(sources) { s in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(s.displayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        FlowLayout(spacing: 8) {
+                            ForEach(s.exploreCategories) { cat in
+                                Button {
+                                    browseTarget = BrowseTarget(
+                                        source: s, url: cat.url,
+                                        title: "\(s.displayName) · \(cat.name)")
+                                } label: {
+                                    Text(cat.name)
+                                        .font(.caption)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(Color.secondary.opacity(0.10), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: 书源
+
+    private var sourceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("书源").font(.headline)
+                Spacer()
+                Text("\(app.enabledSources.count) 个可用")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(app.enabledSources.prefix(20)) { s in
+                Button {
+                    browseTarget = BrowseTarget(source: s, url: s.bookSourceUrl,
+                                                title: s.displayName)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: s.isComic ? "photo.on.rectangle" : "book")
+                            .frame(width: 22)
+                            .foregroundStyle(s.isComic ? .orange : .accentColor)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(s.displayName).font(.subheadline)
+                            Text(s.host).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+            if app.enabledSources.isEmpty {
+                Text("还没有启用的书源，去「书源」页导入或新建")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }
 
-// MARK: - 单源浏览
+// MARK: - 单源浏览（排行榜 / 分类 / 首页）
 
 struct SourceBrowseView: View {
     @EnvironmentObject var app: AppState
     @Environment(\.dismiss) private var dismiss
     let source: BookSource
+    var initialURL: String = ""
+    var title: String = ""
 
     @State private var books: [Book] = []
     @State private var loading = false
@@ -137,14 +181,18 @@ struct SourceBrowseView: View {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
                 ForEach(books) { b in
-                    Button { detail = b } label: { ResultRow(book: b) }
-                        .buttonStyle(.plain)
+                    Button {
+                        detail = b
+                    } label: {
+                        ResultRow(book: b)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .overlay {
                 if loading { ProgressView() }
             }
-            .navigationTitle(source.displayName)
+            .navigationTitle(title.isEmpty ? source.displayName : title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -161,10 +209,11 @@ struct SourceBrowseView: View {
     private func load() async {
         loading = true
         defer { loading = false }
+        let url = initialURL.isEmpty ? source.bookSourceUrl : initialURL
         do {
-            books = try await SourceEngine.shared.explore(source: source, url: source.bookSourceUrl)
+            books = try await SourceEngine.shared.explore(source: source, url: url)
             if books.isEmpty {
-                error = "该源没有发现规则，或 exploreUrl 为空。请用搜索，或在书源编辑里填 exploreUrl。"
+                error = "该页面没有解析出内容。这个入口的规则可能需要调整，可先在「书源体检」里看目录/搜索是否正常。"
             }
         } catch {
             self.error = error.localizedDescription
@@ -179,7 +228,6 @@ struct FlowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
-        var rows: CGFloat = 1
         var x: CGFloat = 0
         var rowHeight: CGFloat = 0
         var totalHeight: CGFloat = 0
@@ -188,7 +236,6 @@ struct FlowLayout: Layout {
             let size = sv.sizeThatFits(.unspecified)
             if x + size.width > maxWidth, x > 0 {
                 totalHeight += rowHeight + spacing
-                rows += 1
                 x = 0
                 rowHeight = 0
             }

@@ -131,9 +131,11 @@ struct TextReaderView: View {
                 // ---- 右侧章内进度条：ZStack 最上层，直接贴右边缘 ----
                 // 之前用 .padding(.trailing, -marginH + 1) 把它推出了屏幕，所以看不见
                 if showBar {
-                    ChapterProgressBar(progress: vm.chapterProgress) { ratio in
-                        vm.jumpToProgress(ratio: ratio)
-                    }
+                    ChapterProgressBar(
+                        progress: vm.chapterProgress,
+                        onScrub: { ratio in vm.jumpToProgress(ratio: ratio) },
+                        onScrubbing: { scrubbing in vm.isScrubbing = scrubbing }
+                    )
                     .frame(width: 24)
                     .padding(.vertical, vm.settings.marginV + 4)
                     .allowsHitTesting(!vm.showMenu)
@@ -212,6 +214,7 @@ struct TextReaderView: View {
                     .padding(.vertical, 8)
                 }
             }
+            .scrollDisabled(vm.isScrubbing)   // 拖进度条时暂停滚动，避免手势打架
             .scrollPosition(id: Binding(
                 get: { scrollPos },
                 set: { new in
@@ -316,6 +319,7 @@ struct PageTextView: UIViewRepresentable {
 struct ChapterProgressBar: View {
     let progress: Double
     let onScrub: (Double) -> Void
+    let onScrubbing: (Bool) -> Void
 
     @State private var dragging = false
     @State private var dragValue: Double = 0
@@ -350,9 +354,12 @@ struct ChapterProgressBar: View {
             }
             .frame(width: geo.size.width, height: h)
             .contentShape(Rectangle())
-            .gesture(
+            // highPriorityGesture：确保进度条手势优先于 ScrollView 滚动，
+            // 再配合 onScrubbing 在拖动期间禁用滚动，二者彻底隔离
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if !dragging { onScrubbing(true) }
                         dragging = true
                         // 顶部 = 0，底部 = 1
                         let ratio = value.location.y / h
@@ -360,7 +367,8 @@ struct ChapterProgressBar: View {
                     }
                     .onEnded { _ in
                         dragging = false
-                        onScrub(dragValue)   // 松手才真正跳转，避免拖动中每帧翻页卡顿
+                        onScrub(dragValue)   // 松手才真正跳转
+                        onScrubbing(false)
                     }
             )
             .overlay(alignment: .leading) {

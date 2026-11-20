@@ -31,6 +31,8 @@ final class ReaderViewModel: ObservableObject {
     @Published var scrollParagraphs: [String] = []
     @Published var visibleParagraph: Int = 0
     @Published var scrollRequest: Int? = nil
+    // 进度条拖动中：为 true 时禁用 ScrollView 滚动，二者互不干扰
+    @Published var isScrubbing = false
     @Published var settings: ReadingSettings
 
     private var anchorChar: Int = 0
