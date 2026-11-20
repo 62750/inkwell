@@ -112,29 +112,13 @@ struct TextReaderView: View {
                     if !vm.showMenu { chapterHeader }
                 }
 
-                // ---- 唤出菜单的点击层：菜单关闭时常驻，任何状态（含加载中）都能点 ----
-                if !vm.showMenu {
-                    HStack(spacing: 0) {
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { vm.showMenu = true }
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { vm.showMenu.toggle() }
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture { vm.showMenu = true }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
 
                 // ---- 右侧章内进度条：ZStack 最上层，直接贴右边缘 ----
                 // 之前用 .padding(.trailing, -marginH + 1) 把它推出了屏幕，所以看不见
                 if showBar {
                     ChapterProgressBar(
                         progress: vm.chapterProgress,
-                        onScrub: { ratio in vm.jumpToProgress(ratio: ratio) },
-                        onScrubbing: { scrubbing in vm.isScrubbing = scrubbing }
+                        onScrub: { ratio in vm.jumpToProgress(ratio: ratio) }
                     )
                     .frame(width: 24)
                     .padding(.vertical, vm.settings.marginV + 4)
@@ -189,6 +173,18 @@ struct TextReaderView: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .simultaneousGesture(
+            SpatialTapGesture().onEnded { value in
+                guard !vm.showMenu else { return }
+                let w = max(1, size.width)
+                let x = value.location.x
+                if x < w * 0.3 || x > w * 0.7 {
+                    vm.showMenu = true
+                } else {
+                    vm.showMenu.toggle()
+                }
+            }
+        )
     }
 
 
@@ -214,7 +210,18 @@ struct TextReaderView: View {
                     .padding(.vertical, 8)
                 }
             }
-            .scrollDisabled(vm.isScrubbing)   // 拖进度条时暂停滚动，避免手势打架
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { value in
+                    guard !vm.showMenu else { return }
+                    let w = max(1, size.width)
+                    let x = value.location.x
+                    if x < w * 0.3 || x > w * 0.7 {
+                        vm.showMenu = true
+                    } else {
+                        vm.showMenu.toggle()
+                    }
+                }
+            )
             .scrollPosition(id: Binding(
                 get: { scrollPos },
                 set: { new in
@@ -319,7 +326,6 @@ struct PageTextView: UIViewRepresentable {
 struct ChapterProgressBar: View {
     let progress: Double
     let onScrub: (Double) -> Void
-    let onScrubbing: (Bool) -> Void
 
     @State private var dragging = false
     @State private var dragValue: Double = 0
@@ -354,12 +360,12 @@ struct ChapterProgressBar: View {
             }
             .frame(width: geo.size.width, height: h)
             .contentShape(Rectangle())
-            // highPriorityGesture：确保进度条手势优先于 ScrollView 滚动，
-            // 再配合 onScrubbing 在拖动期间禁用滚动，二者彻底隔离
+            // highPriorityGesture：进度条手势优先于 ScrollView 滚动。
+            // 高优先级手势一旦识别成功，下层的 ScrollView 就收不到这个触摸，
+            // 所以拖进度条不会触发滚动，松手后滚动自然恢复，无需额外禁用。
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        if !dragging { onScrubbing(true) }
                         dragging = true
                         // 顶部 = 0，底部 = 1
                         let ratio = value.location.y / h
@@ -368,7 +374,6 @@ struct ChapterProgressBar: View {
                     .onEnded { _ in
                         dragging = false
                         onScrub(dragValue)   // 松手才真正跳转
-                        onScrubbing(false)
                     }
             )
             .overlay(alignment: .leading) {
