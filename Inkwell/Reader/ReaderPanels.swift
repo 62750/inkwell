@@ -43,11 +43,23 @@ struct ReaderMenuOverlay: View {
                     .lineLimit(1)
             }
             Spacer()
+            // 换书源：在其它已启用源里找同名书
             Button {
-                vm.jump(toChapter: vm.chapterIndex)
+                vm.showMenu = false
+                vm.showSourceSwap = true
+            } label: {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 14))
+                    .frame(width: 28, height: 28)
+            }
+            .disabled(vm.chapters.isEmpty)
+            // 刷新：清缓存重新拉当前章
+            Button {
+                vm.reloadChapter()
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 14))
+                    .frame(width: 28, height: 28)
             }
         }
         .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
@@ -447,6 +459,18 @@ struct ReaderSettingsPanel: View {
                     Text(String(format: "%.2f", vm.settings.lineHeightMultiple))
                         .font(.system(size: 11, design: .monospaced))
                         .frame(width: 34)
+                }
+
+                // 段落间距
+                HStack {
+                    Text("段距").font(.subheadline).frame(width: 48, alignment: .leading)
+                    Slider(value: Binding(
+                        get: { Double(vm.settings.paragraphSpacing) },
+                        set: { v in update { $0.paragraphSpacing = CGFloat(v) } }
+                    ), in: 0...2, step: 0.1)
+                    Text(String(format: "%.1f", vm.settings.paragraphSpacing))
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(width: 30)
                 }
 
                 // 页边距

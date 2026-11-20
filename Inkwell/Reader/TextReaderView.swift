@@ -67,6 +67,10 @@ struct ReaderContainerView: View {
         .onChange(of: vm.settings) { _, newValue in
             app.updateSettings(newValue)
         }
+        .sheet(isPresented: $vm.showSourceSwap) {
+            SourceSwapView(vm: vm)
+                .environmentObject(app)
+        }
     }
 }
 
@@ -105,8 +109,8 @@ struct TextReaderView: View {
                     ChapterProgressBar(progress: vm.chapterProgress) { ratio in
                         vm.jumpToPage(ratio: ratio)
                     }
-                    .padding(.trailing, 2)
-                    .opacity(vm.showMenu ? 0.25 : 0.9)
+                    .padding(.trailing, -vm.settings.marginH + 1)
+                    .opacity(vm.showMenu ? 0.3 : 1)
                 }
             }
             .overlay(alignment: .top) {
@@ -269,6 +273,10 @@ struct PageTextView: UIViewRepresentable {
 }
 
 // MARK: - 章内进度条（右侧竖条，可拖动）
+//
+// 早先版本只有 3pt 宽、80% 透明，几乎看不见。现在做成：
+//   5pt 轨道 + 实心填充 + 11pt 拇指 + 22pt 触摸区，
+//   拖动时右侧浮出百分比，松手即跳到对应页。
 
 struct ChapterProgressBar: View {
     let progress: Double
@@ -284,15 +292,30 @@ struct ChapterProgressBar: View {
     var body: some View {
         GeometryReader { geo in
             let h = max(1, geo.size.height)
+            let trackW: CGFloat = 5
+            let knob: CGFloat = 11
+
             ZStack(alignment: .bottom) {
+                // 轨道
                 Capsule()
-                    .fill(Color.secondary.opacity(0.16))
-                    .frame(width: 3)
+                    .fill(Color.secondary.opacity(0.20))
+                    .frame(width: trackW, height: h)
+
+                // 已读部分（自下而上）
                 Capsule()
-                    .fill(Color.accentColor.opacity(0.8))
-                    .frame(width: 3, height: h * display)
+                    .fill(Color.accentColor.opacity(0.85))
+                    .frame(width: trackW, height: max(knob, h * display))
+
+                // 拇指
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: knob, height: knob)
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 1.2))
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .position(x: geo.size.width / 2,
+                              y: min(h - knob / 2, max(knob / 2, h * (1 - display))))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .frame(width: geo.size.width, height: h)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -307,18 +330,20 @@ struct ChapterProgressBar: View {
                         onScrub(dragValue)
                     }
             )
-            .overlay(alignment: .top) {
+            .overlay(alignment: .leading) {
                 if dragging {
                     Text("\(Int((display * 100).rounded()))%")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor, in: Capsule())
                         .fixedSize()
-                        .offset(y: -18)
+                        .offset(x: -46)
                 }
             }
         }
-        .frame(width: 16)
+        .frame(width: 22)          // 触摸区宽一点，好拖
+        .padding(.vertical, 2)
     }
 }

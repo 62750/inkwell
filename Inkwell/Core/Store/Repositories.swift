@@ -201,6 +201,22 @@ final class LibraryRepository: @unchecked Sendable {
         try? db.dbQueue.write { dbase in try rec.insert(dbase, onConflict: .replace) }
     }
 
+    func deleteContent(chapterId: String) {
+        try? db.dbQueue.write { dbase in
+            _ = try ContentRecord.deleteOne(dbase, key: chapterId)
+        }
+    }
+
+    /// 换源时清空整本章节与正文缓存（保留书籍条目与阅读进度）
+    func deleteChapters(bookId: String) {
+        try? db.dbQueue.write { dbase in
+            _ = try ChapterRecord.filter(Column("bookId") == bookId).deleteAll(dbase)
+            _ = try ContentRecord
+                .filter(sql: "id LIKE ?", arguments: ["\(bookId)#%"])
+                .deleteAll(dbase)
+        }
+    }
+
     /// 批量写入正文：一次事务，导入整本书只提交一次
     func saveContents(_ pairs: [(chapterId: String, content: ContentResult)]) {
         guard !pairs.isEmpty else { return }

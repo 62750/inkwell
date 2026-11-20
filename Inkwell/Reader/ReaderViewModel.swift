@@ -11,7 +11,7 @@ import Combine
 // 所有 UI 状态的更新都显式包在 MainActor.run 里。
 
 final class ReaderViewModel: ObservableObject {
-    let book: Book
+    @Published var book: Book
     private let libraryRepo = LibraryRepository.shared
 
     @Published var chapters: [Chapter] = []
@@ -26,6 +26,7 @@ final class ReaderViewModel: ObservableObject {
     @Published var showMenu = false
     @Published var showTOC = false
     @Published var showSettings = false
+    @Published var showSourceSwap = false
     @Published var settings: ReadingSettings
 
     private var anchorChar: Int = 0
@@ -58,7 +59,7 @@ final class ReaderViewModel: ObservableObject {
     }
 
     /// 在线书首次进入：拉目录 → 落缓存 → 自动打开上次/第一章
-    private func loadTocThenChapter() {
+    private func loadTocThenChapter(seekRatio: Double? = nil) {
         guard let source = SourceRepository.shared.source(id: book.sourceId) else {
             Task { await loadChapter(at: 0) }
             return
@@ -77,7 +78,12 @@ final class ReaderViewModel: ObservableObject {
                 self.libraryRepo.saveChapters(toc.chapters, bookId: book.id)
                 await MainActor.run {
                     self.chapters = toc.chapters
-                    self.chapterIndex = min(self.chapterIndex, toc.chapters.count - 1)
+                    if let r = seekRatio, !toc.chapters.isEmpty {
+                        self.chapterIndex = min(toc.chapters.count - 1,
+                                                max(0, Int(r * Double(toc.chapters.count))))
+                    } else {
+                        self.chapterIndex = min(self.chapterIndex, toc.chapters.count - 1)
+                    }
                     self.loading = false
                 }
                 await self.loadChapter(at: self.chapterIndex)
@@ -321,6 +327,78 @@ final class ReaderViewModel: ObservableObject {
         guard let p = paginated, p.pageCount > 0 else { return 0 }
         if p.pageCount == 1 { return 1 }
         return Double(pageIndex) / Double(p.pageCount - 1)
+    }
+
+    // MARK: 刷新 / 换源
+
+    /// 刷新当前章：清掉内存与磁盘缓存，重新拉一次
+    func reloadChapter() {
+        guard let ch = currentChapter else { return }
+        contentCache[chapterIndex] = nil
+        libraryRepo.deleteContent(chapterId: ch.id)
+        showMenu = false
+        pendingText = ""
+        paginated = nil
+        Task { await loadChapter(at: chapterIndex, targetChar: anchorChar) }
+    }
+
+    /// 在所有已启用源里找同名书（排除当前源）
+    func findSameBookInOtherSources() async -> [Book] {
+        let name = book.name
+        let currentSourceId = book.sourceId
+        let sources = SourceRepository.shared.all().filter {
+            $0.enabled && $0.id != currentSourceId && !$0.searchUrl.isEmpty
+        }
+        guard !sources.isEmpty else { return [] }
+
+        var collected: [Book] = []
+        await withTaskGroup(of: [Book].self) { group in
+            for s in sources {
+                group.addTask {
+                    (try? await SourceEngine.shared.search(source: s, key: name)) ?? []
+                }
+            }
+            for await list in group {
+                collected.append(contentsOf: list)
+            }
+        }
+        // 只保留书名相近的，避免搜出一堆无关结果
+        let normalized = name.replacingOccurrences(of: " ", with: "")
+        return collected.filter {
+            let n = $0.name.replacingOccurrences(of: " ", with: "")
+            return n == normalized || n.contains(normalized) || normalized.contains(n)
+        }
+    }
+
+    /// 换源：保留书籍条目、id 与阅读进度比例，只把数据来源换掉
+    func switchSource(to target: Book) {
+        guard !chapters.isEmpty || chapterIndex == 0 else { return }
+        let ratio = chapters.isEmpty
+            ? 0
+            : Double(chapterIndex) / Double(max(1, chapters.count))
+
+        var updated = book
+        updated.sourceId = target.sourceId
+        updated.sourceName = target.sourceName
+        updated.bookUrl = target.bookUrl
+        updated.tocUrl = target.tocUrl.isEmpty ? target.bookUrl : target.tocUrl
+        if !target.coverUrl.isEmpty { updated.coverUrl = target.coverUrl }
+        if !target.intro.isEmpty { updated.intro = target.intro }
+        if !target.lastChapter.isEmpty { updated.lastChapter = target.lastChapter }
+        book = updated
+        libraryRepo.saveBook(updated)
+
+        libraryRepo.deleteChapters(bookId: book.id)
+        chapters = []
+        contentCache.removeAll()
+        paginated = nil
+        pendingText = ""
+        chapterIndex = 0
+        pageIndex = 0
+        anchorChar = 0
+        showSourceSwap = false
+
+        loadTocThenChapter(seekRatio: ratio)
     }
 
     // MARK: 漫画
