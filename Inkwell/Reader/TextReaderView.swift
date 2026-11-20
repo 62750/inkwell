@@ -148,7 +148,7 @@ struct TextReaderView: View {
     private func pagedBody(size: CGSize) -> some View {
         Group {
             if let paginated = vm.paginated, paginated.pageCount > 0 {
-                readerPager(paginated: paginated)
+                readerPager(paginated: paginated, size: size)
             } else {
                 ProgressView()
             }
@@ -156,7 +156,7 @@ struct TextReaderView: View {
     }
 
     @ViewBuilder
-    private func readerPager(paginated: PaginatedChapter) -> some View {
+    private func readerPager(paginated: PaginatedChapter, size: CGSize) -> some View {
         let count = paginated.pageCount
         TabView(selection: Binding(
             get: { min(vm.pageIndex, max(0, count - 1)) },
