@@ -1,4 +1,4 @@
-﻿import SwiftUI
+import SwiftUI
 import UIKit
 
 // MARK: - 阅读器容器
@@ -80,6 +80,7 @@ struct ReaderContainerView: View {
 struct TextReaderView: View {
     @ObservedObject var vm: ReaderViewModel
     @State private var contentSize: CGSize = .zero
+    @State private var scrollPos: Int?
 
     var body: some View {
         GeometryReader { geo in
@@ -131,7 +132,7 @@ struct TextReaderView: View {
                 // 之前用 .padding(.trailing, -marginH + 1) 把它推出了屏幕，所以看不见
                 if showBar {
                     ChapterProgressBar(progress: vm.chapterProgress) { ratio in
-                        vm.jumpToPage(ratio: ratio)
+                        vm.jumpToProgress(ratio: ratio)
                     }
                     .frame(width: 24)
                     .padding(.vertical, vm.settings.marginV + 4)
@@ -193,17 +194,38 @@ struct TextReaderView: View {
     // MARK: 滚动模式
 
     private func scrollBody(size: CGSize) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            if vm.pendingText.isEmpty {
-                ProgressView().padding(40)
-            } else {
-                Text(vm.pendingText)
-                    .font(Font(vm.settings.uiFont))
-                    .lineSpacing(vm.settings.fontSize * (vm.settings.lineHeightMultiple - 1))
-                    .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                if vm.pendingText.isEmpty {
+                    ProgressView().padding(40).id(0)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: vm.settings.fontSize * 0.5) {
+                        ForEach(Array(vm.scrollParagraphs.enumerated()), id: \.offset) { idx, para in
+                            Text(para)
+                                .font(Font(vm.settings.uiFont))
+                                .lineSpacing(vm.settings.fontSize * (vm.settings.lineHeightMultiple - 1))
+                                .foregroundStyle(Color(uiColor: vm.settings.theme.textColor))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id(idx)
+                        }
+                    }
                     .padding(.vertical, 8)
-                    .onTapGesture { vm.showMenu.toggle() }
+                }
+            }
+            .scrollPosition(id: Binding(
+                get: { scrollPos },
+                set: { new in
+                    scrollPos = new
+                    if let new { vm.visibleParagraph = new }
+                }
+            ))
+            .onChange(of: vm.scrollRequest) { req in
+                if let req {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(req, anchor: .top)
+                    }
+                    vm.scrollRequest = nil
+                }
             }
         }
     }
@@ -228,11 +250,17 @@ struct TextReaderView: View {
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
             Spacer()
-            Text("\(vm.pageIndex + 1) / \(max(1, vm.pageCount))")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
+            if vm.settings.turnMode == .scroll {
+                Text("\(vm.visibleParagraph + 1) / \(max(1, vm.scrollParagraphs.count))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
+            } else {
+                Text("\(vm.pageIndex + 1) / \(max(1, vm.pageCount))")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
+            }
             Spacer()
-            Text("\(Int(overallPercent() * 100))%")
+            Text("\(Int(vm.chapterProgress * 100))%")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Color(uiColor: vm.settings.theme.secondaryColor))
         }
@@ -302,25 +330,23 @@ struct ChapterProgressBar: View {
             let trackW: CGFloat = 5
             let knob: CGFloat = 11
 
-            ZStack(alignment: .bottom) {
-                // 轨道
+            // 直觉方向：顶部 = 章首(0%)，底部 = 章尾(100%)，填充从上往下长
+            ZStack(alignment: .top) {
                 Capsule()
                     .fill(Color.secondary.opacity(0.20))
                     .frame(width: trackW, height: h)
 
-                // 已读部分（自下而上）
                 Capsule()
                     .fill(Color.accentColor.opacity(0.85))
                     .frame(width: trackW, height: max(knob, h * display))
 
-                // 拇指
                 Circle()
                     .fill(Color.accentColor)
                     .frame(width: knob, height: knob)
                     .overlay(Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 1.2))
                     .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
                     .position(x: geo.size.width / 2,
-                              y: min(h - knob / 2, max(knob / 2, h * (1 - display))))
+                              y: min(h - knob / 2, max(knob / 2, h * display)))
             }
             .frame(width: geo.size.width, height: h)
             .contentShape(Rectangle())
@@ -328,13 +354,13 @@ struct ChapterProgressBar: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         dragging = true
-                        let ratio = 1 - (value.location.y / h)
+                        // 顶部 = 0，底部 = 1
+                        let ratio = value.location.y / h
                         dragValue = min(1, max(0, ratio))
-                        onScrub(dragValue)
                     }
                     .onEnded { _ in
                         dragging = false
-                        onScrub(dragValue)
+                        onScrub(dragValue)   // 松手才真正跳转，避免拖动中每帧翻页卡顿
                     }
             )
             .overlay(alignment: .leading) {
@@ -350,7 +376,7 @@ struct ChapterProgressBar: View {
                 }
             }
         }
-        .frame(width: 22)          // 触摸区宽一点，好拖
+        .frame(width: 22)
         .padding(.vertical, 2)
     }
 }

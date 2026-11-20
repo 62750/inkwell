@@ -1,4 +1,4 @@
-﻿name: Inkwell
+name: Inkwell
 options:
   bundleIdPrefix: com.inkwell
   deploymentTarget:
@@ -40,8 +40,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.inkwell.reader
         PRODUCT_NAME: Inkwell
-        MARKETING_VERSION: "1.0.8"
-        CURRENT_PROJECT_VERSION: "9"
+        MARKETING_VERSION: "1.0.9"
+        CURRENT_PROJECT_VERSION: "10"
         INFOPLIST_FILE: Inkwell/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"

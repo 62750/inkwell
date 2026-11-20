@@ -1,4 +1,4 @@
-﻿import Foundation
+import Foundation
 import SwiftUI
 import Combine
 
@@ -27,6 +27,10 @@ final class ReaderViewModel: ObservableObject {
     @Published var showTOC = false
     @Published var showSettings = false
     @Published var showSourceSwap = false
+    // 滚动模式：段落数组 + 可见段落 + 跳转请求
+    @Published var scrollParagraphs: [String] = []
+    @Published var visibleParagraph: Int = 0
+    @Published var scrollRequest: Int? = nil
     @Published var settings: ReadingSettings
 
     private var anchorChar: Int = 0
@@ -119,6 +123,12 @@ final class ReaderViewModel: ObservableObject {
             self.paginated = nil
             self.pageIndex = 0
             self.anchorChar = targetChar ?? 0
+            // 换章后强制重新分页：否则两章字数恰好相同时会命中 early return，
+            // 导致显示的还是上一章，且停在旧页码
+            self.lastLayoutSize = .zero
+            self.scrollParagraphs = []
+            self.visibleParagraph = 0
+            self.scrollRequest = nil
         }
         let chapter = chapters[index]
 
@@ -155,6 +165,8 @@ final class ReaderViewModel: ObservableObject {
 
         await MainActor.run {
             self.pendingText = text
+            self.scrollParagraphs = Self.splitParagraphs(text)
+            self.visibleParagraph = 0
             self.loading = false
         }
         prefetchNeighbors()
@@ -310,7 +322,7 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    /// 章内按比例跳页（右侧竖条拖动用）
+    /// 章内按比例跳页（右侧竖条拖动，松手时调用）
     func jumpToPage(ratio: Double) {
         guard let p = paginated, p.pageCount > 0 else { return }
         let clamped = min(1, max(0, ratio))
@@ -322,11 +334,60 @@ final class ReaderViewModel: ObservableObject {
         }
     }
 
-    /// 当前页在本章的进度 0...1
+    /// 统一的章内跳转：分页模式切页，滚动模式滚动到对应段落
+    func jumpToProgress(ratio: Double) {
+        let clamped = min(1, max(0, ratio))
+        if settings.turnMode == .scroll {
+            let n = scrollParagraphs.count
+            guard n > 1 else { return }
+            let target = min(n - 1, max(0, Int((Double(n - 1) * clamped).rounded())))
+            visibleParagraph = target
+            scrollRequest = target
+            saveProgress()
+        } else {
+            jumpToPage(ratio: clamped)
+        }
+    }
+
+    /// 当前在本章的进度 0...1（顶部=0，底部=1）
     var chapterProgress: Double {
+        if settings.turnMode == .scroll {
+            let n = scrollParagraphs.count
+            guard n > 1 else { return 0 }
+            return Double(visibleParagraph) / Double(n - 1)
+        }
         guard let p = paginated, p.pageCount > 0 else { return 0 }
         if p.pageCount == 1 { return 1 }
         return Double(pageIndex) / Double(p.pageCount - 1)
+    }
+
+    /// 把整章文本拆成可懒加载的段落（长段再按句号拆小）
+    private static func splitParagraphs(_ text: String) -> [String] {
+        var out: [String] = []
+        for raw in text.components(separatedBy: "\n\n") {
+            let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.isEmpty { continue }
+            if t.count <= 2000 {
+                out.append(t)
+                continue
+            }
+            let chars = Array(t)
+            var i = 0
+            while i < chars.count {
+                let end = min(i + 2000, chars.count)
+                var cut = end
+                if end < chars.count {
+                    var j = end - 1
+                    while j > i + 1000 {
+                        if chars[j] == "\u{3002}" || chars[j] == "\n" { cut = j + 1; break }
+                        j -= 1
+                    }
+                }
+                out.append(String(chars[i..<cut]))
+                i = cut
+            }
+        }
+        return out.isEmpty ? [text] : out
     }
 
     // MARK: 刷新 / 换源
